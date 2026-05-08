@@ -55,7 +55,7 @@
     } ]
   },
   "id" : 1,
-  "lastModifiedDate" : "2026-05-08T20:50:06Z",
+  "lastModifiedDate" : "2026-05-08T21:13:41Z",
   "model" : {
     "people" : [ {
       "description" : "Клиент. Получает алерты, отвечает на письма с документами.",
@@ -422,7 +422,7 @@
     } ],
     "configuration" : {
       "branding" : { },
-      "lastSavedView" : "SystemContext",
+      "lastSavedView" : "Containers",
       "styles" : {
         "elements" : [ {
           "background" : "#08427b",
