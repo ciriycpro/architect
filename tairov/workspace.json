@@ -1,0 +1,564 @@
+{
+  "configuration" : { },
+  "description" : "Автоматизация документооборота ИП Таирова — сверка договоров/счетов/актов, алерты по 3 типам проблем",
+  "documentation" : {
+    "decisions" : [ {
+      "content" : "# 1. N8N как платформа разработки агентов\n\nDate: 2026-04-27\n\n## Status\n\nAccepted\n\n## Context\n\nНужна платформа для автоматизации документооборота ИП Таирова: получение документов по почте/Drive, OCR, извлечение полей, запись в реестр Google Sheets, алерты в мессенджеры.\n\nКандидаты: чистый Python (LangGraph), N8N (low-code), Make.com (no-code), KAMF (свой фреймворк).\n\n## Decision\n\nВыбран **N8N** как основная платформа.\n\n## Consequences\n\n**Плюсы:**\n- Быстрый старт (готовые ноды для IMAP, Drive, Sheets, HTTP)\n- Визуальная отладка через UI\n- Низкий порог входа — можно показать заказчику логику\n- Уже развёрнут на сервере coo (Docker, порт 5678)\n\n**Минусы:**\n- Тяжёлый по RAM (~500 MB на инстанс)\n- Сложно версионировать (workflow живут в БД, не в файлах)\n- IMAP-нода глючит на больших вложениях (см. DEC-005)\n",
+      "date" : "2026-04-26T21:00:00Z",
+      "format" : "Markdown",
+      "id" : "1",
+      "status" : "Accepted",
+      "title" : "N8N как платформа разработки агентов"
+    }, {
+      "content" : "# 2. IMAP-триггер на 5458508@mail.ru\n\nDate: 2026-04-27\n\n## Status\n\nSuperseded by [DEC-005](#5)\n\n## Context\n\nДокументовед должен получать документы от Таирова. Каналы: Полина грузит вручную в Drive, либо Таиров отвечает на письма от Agent Caller.\n\n## Decision\n\nТриггер Документоведа — **IMAP на ящик 5458508@mail.ru** (тот же, с которого Agent Caller отправляет письма Таирову).\n\n## Consequences\n\n**Плюсы:**\n- Таиров не меняет привычки — просто отвечает на письма\n- Один канал для входящих и исходящих\n- Не нужен Drive-доступ Таирову\n\n**Минусы:**\n- IMAP-нода в N8N глючит на тяжёлых вложениях\n- mail.ru блокирует частые подключения (timeout через час работы)\n- Нет контроля над парсингом писем\n\n**Решение проблем:** см. DEC-005 — переход на отдельный mail-service.\n",
+      "date" : "2026-04-26T21:00:00Z",
+      "format" : "Markdown",
+      "id" : "2",
+      "links" : [ {
+        "description" : "Superseded by",
+        "id" : "5"
+      } ],
+      "status" : "Superseded",
+      "title" : "IMAP-триггер на 5458508@mail.ru"
+    }, {
+      "content" : "# 3. Документовед на 39 нод (отменено)\n\nDate: 2026-04-29\n\n## Status\n\nCancelled — superseded by [DEC-004](#4)\n\n## Context\n\nПервая итерация Документоведа собрана на 39 нод:\n- 3 триггера (IMAP + 2 Drive Trigger + Webhook)\n- 5-ступенчатый OCR-каскад (cloudflare-ai → Qwen3-VL → Qwen2.5-VL → Mistral)\n- 4 IF-ноды между ступенями\n- Code-нода с pdf-parse/mammoth (require!)\n- LLM Extract DeepSeek\n- Code валидация\n- IF \"не подписан\"\n- Switch по 5 типам документов\n- 5 отдельных Sheets\n\n## Decision\n\nПризнано переусложнением. Отменено.\n\n## Consequences\n\n**Что не так:**\n- 39 нод нереально дебажить через UI\n- Каскад из 5 OCR — преждевременная оптимизация (на MVP хватает одного)\n- Логика \"не подписан\" — это задача Контроллера, не Документоведа\n- 5 разных Sheets вместо одного с типом-колонкой — переусложнение\n\n**Урок:** на MVP не закладывать fallback'и до того, как появится статистика реальных ошибок.\n",
+      "date" : "2026-04-28T21:00:00Z",
+      "format" : "Markdown",
+      "id" : "3",
+      "links" : [ {
+        "description" : "Cancelled — superseded by",
+        "id" : "4"
+      } ],
+      "status" : "Cancelled",
+      "title" : "Документовед на 39 нод (отменено)"
+    }, {
+      "content" : "# 4. Упрощение Документоведа до 12 нод\n\nDate: 2026-04-30\n\n## Status\n\nAccepted\n\n## Context\n\nПосле анализа Франкенштейна-1 (39 нод, см. DEC-003) решено упростить до минимально жизнеспособной версии.\n\n## Decision\n\n**Документовед = 12 нод:**\n\n1. Drive Trigger (от Полины) — единственный источник\n2. Drive: download\n3. HTTP Request → Qwen3-VL 235B (один OCR, без каскада)\n4. HTTP Request → DeepSeek V3 (LLM extract JSON)\n5. Code: валидация полей\n6. IF: распознали корректно?\n   - нет → Sheets \"Ошибки\" + Drive Move в \"Требует проверки\" + HTTP→Caller\n   - да →\n7. Switch: тип документа (5 веток)\n8. Sheets: Append Row\n9. Drive Move в Обработанные/<тип>\n\n## Consequences\n\n**Плюсы:**\n- В 3 раза проще, реально дебажится\n- Один OCR — одна точка отказа, понятная для логирования\n- Логика \"не подписан\" вынесена в Контроллер (как и должно быть)\n\n**Минусы:**\n- Один OCR без fallback — если Qwen упадёт, пайплайн встанет (приемлемо для MVP)\n- Drive Trigger от Полины как единственный источник — отвалился IMAP-канал от Таирова\n\n**Открытый вопрос:** как вернуть IMAP-канал? — решено в DEC-005.\n",
+      "date" : "2026-04-29T21:00:00Z",
+      "format" : "Markdown",
+      "id" : "4",
+      "status" : "Accepted",
+      "title" : "Упрощение Документоведа до 12 нод"
+    }, {
+      "content" : "# 5. Mail-service как отдельный микросервис\n\nDate: 2026-05-02\n\n## Status\n\nAccepted\n\n## Context\n\nПосле DEC-002 IMAP-канал планировался через ноду N8N. После DEC-004 он временно убран. Нужно вернуть приём писем от Таирова, но N8N IMAP-нода имеет проблемы:\n\n- Глючит на больших вложениях (>5 MB)\n- mail.ru блокирует через час работы (timeout)\n- Нет контроля над парсингом MIME, attachments\n- Сложно дебажить — ноды живут в БД N8N\n\n## Decision\n\nИзвлечь IMAP-приём в **отдельный микросервис на Node.js**:\n\n- Имя: `mail-service`\n- Хост: `coo:8765`\n- Стек: Node.js + `imap-simple` библиотека\n- Функции: подключение к IMAP, парсинг писем, извлечение вложений, отдача по HTTP API\n- Документовед в N8N принимает данные через HTTP webhook от mail-service\n\n## Consequences\n\n**Плюсы:**\n- Полный контроль над IMAP-логикой (timeouts, retry, логирование)\n- Сервис можно перезапускать независимо от N8N\n- Дебаг через `docker logs` и стандартные Node.js инструменты\n- Открытый путь для замены N8N полностью на микросервисы (если зайдёт)\n- mail-service v1 успешно протестирован 02.05.2026 (5 писем с 01.05, парсинг ОК)\n\n**Минусы:**\n- Новый компонент — новая точка отказа\n- Нужно деплоить и мониторить\n- Контракт между mail-service и N8N — нужно поддерживать\n\n**Эволюция архитектуры:**\n- DEC-001: всё в N8N\n- DEC-002: + IMAP в N8N (отменено)\n- DEC-005: гибрид — IMAP в Node.js, OCR в N8N\n\n**Стратегический сигнал:** возможно полный переезд на Node.js в будущем (если N8N будет упираться в потолок).\n",
+      "date" : "2026-05-01T21:00:00Z",
+      "format" : "Markdown",
+      "id" : "5",
+      "status" : "Accepted",
+      "title" : "Mail-service как отдельный микросервис"
+    } ],
+    "sections" : [ {
+      "content" : "# Tairov Compliance Helper\n\nАвтоматизация документооборота ИП Таирова.\n\n## Компоненты\n- mail-service (Node.js, coo:8765)\n- N8N Документовед\n- N8N Контроллер  \n- Agent Caller\n",
+      "filename" : "01-overview.md",
+      "format" : "Markdown",
+      "order" : 1,
+      "title" : ""
+    } ]
+  },
+  "id" : 1,
+  "lastModifiedDate" : "2026-05-08T20:50:06Z",
+  "model" : {
+    "people" : [ {
+      "description" : "Клиент. Получает алерты, отвечает на письма с документами.",
+      "id" : "1",
+      "location" : "Unspecified",
+      "name" : "ИП Таиров",
+      "properties" : {
+        "structurizr.dsl.identifier" : "tairov"
+      },
+      "relationships" : [ {
+        "description" : "Отвечает на письма с документами",
+        "destinationId" : "3",
+        "id" : "18",
+        "sourceId" : "1",
+        "tags" : "Relationship",
+        "technology" : "SMTP"
+      } ],
+      "tags" : "Element,Person"
+    }, {
+      "description" : "Оператор системы. Получает алерты, дебажит, обновляет реестр.",
+      "id" : "2",
+      "location" : "Unspecified",
+      "name" : "Якшин Артём",
+      "properties" : {
+        "structurizr.dsl.identifier" : "artem"
+      },
+      "relationships" : [ {
+        "description" : "Просматривает реестр и файлы",
+        "destinationId" : "4",
+        "id" : "20",
+        "sourceId" : "2",
+        "tags" : "Relationship",
+        "technology" : "Web"
+      } ],
+      "tags" : "Element,Person"
+    } ],
+    "softwareSystems" : [ {
+      "description" : "Почтовый сервер 5458508@mail.ru",
+      "documentation" : { },
+      "id" : "3",
+      "location" : "Unspecified",
+      "name" : "mail.ru SMTP/IMAP",
+      "properties" : {
+        "structurizr.dsl.identifier" : "mailru"
+      },
+      "relationships" : [ {
+        "description" : "Входящие письма с вложениями",
+        "destinationId" : "8",
+        "id" : "22",
+        "sourceId" : "3",
+        "tags" : "Relationship",
+        "technology" : "IMAP"
+      }, {
+        "description" : "Входящие письма с вложениями",
+        "destinationId" : "7",
+        "id" : "23",
+        "linkedRelationshipId" : "22",
+        "sourceId" : "3",
+        "technology" : "IMAP"
+      } ],
+      "tags" : "Element,Software System,External"
+    }, {
+      "description" : "Drive (хранилище файлов) + Sheets (реестр документов)",
+      "documentation" : { },
+      "id" : "4",
+      "location" : "Unspecified",
+      "name" : "Google Workspace",
+      "properties" : {
+        "structurizr.dsl.identifier" : "google"
+      },
+      "tags" : "Element,Software System,External"
+    }, {
+      "description" : "Qwen3-VL (OCR), DeepSeek V3 (LLM extract)",
+      "documentation" : { },
+      "id" : "5",
+      "location" : "Unspecified",
+      "name" : "OpenRouter API",
+      "properties" : {
+        "structurizr.dsl.identifier" : "openrouter"
+      },
+      "tags" : "Element,Software System,External"
+    }, {
+      "description" : "Каналы доставки алертов",
+      "documentation" : { },
+      "id" : "6",
+      "location" : "Unspecified",
+      "name" : "Telegram + WhatsApp + Email",
+      "properties" : {
+        "structurizr.dsl.identifier" : "messengers"
+      },
+      "tags" : "Element,Software System,External"
+    }, {
+      "containers" : [ {
+        "description" : "Node.js, coo:8765",
+        "documentation" : { },
+        "id" : "8",
+        "name" : "Mail Service",
+        "properties" : {
+          "structurizr.dsl.identifier" : "mailservice"
+        },
+        "relationships" : [ {
+          "description" : "Передаёт parsed JSON + binary",
+          "destinationId" : "9",
+          "id" : "24",
+          "sourceId" : "8",
+          "tags" : "Relationship",
+          "technology" : "HTTP POST"
+        } ],
+        "tags" : "Element,Container",
+        "technology" : "IMAP-слушатель: парсит письма от Таирова, отдаёт по HTTP"
+      }, {
+        "components" : [ {
+          "description" : "HTTP→Qwen3-VL",
+          "documentation" : { },
+          "id" : "10",
+          "name" : "OCR Step",
+          "properties" : {
+            "structurizr.dsl.identifier" : "ocr"
+          },
+          "relationships" : [ {
+            "description" : "Передаёт Markdown",
+            "destinationId" : "11",
+            "id" : "31",
+            "sourceId" : "10",
+            "tags" : "Relationship"
+          } ],
+          "tags" : "Element,Component",
+          "technology" : "Извлекает текст из PDF/JPG в Markdown"
+        }, {
+          "description" : "HTTP→DeepSeek V3",
+          "documentation" : { },
+          "id" : "11",
+          "name" : "LLM Extract",
+          "properties" : {
+            "structurizr.dsl.identifier" : "extract"
+          },
+          "relationships" : [ {
+            "description" : "Передаёт JSON",
+            "destinationId" : "12",
+            "id" : "32",
+            "sourceId" : "11",
+            "tags" : "Relationship"
+          } ],
+          "tags" : "Element,Component",
+          "technology" : "Извлекает структурированные поля (тип, контрагент, ИНН, сумма, дата)"
+        }, {
+          "description" : "Code-нода",
+          "documentation" : { },
+          "id" : "12",
+          "name" : "Validate",
+          "properties" : {
+            "structurizr.dsl.identifier" : "validate"
+          },
+          "relationships" : [ {
+            "description" : "Отвалидированные поля",
+            "destinationId" : "13",
+            "id" : "33",
+            "sourceId" : "12",
+            "tags" : "Relationship"
+          } ],
+          "tags" : "Element,Component",
+          "technology" : "Проверка корректности полей"
+        }, {
+          "description" : "Switch-нода",
+          "documentation" : { },
+          "id" : "13",
+          "name" : "Type Switch",
+          "properties" : {
+            "structurizr.dsl.identifier" : "router"
+          },
+          "relationships" : [ {
+            "description" : "Тип определён",
+            "destinationId" : "14",
+            "id" : "34",
+            "sourceId" : "13",
+            "tags" : "Relationship"
+          }, {
+            "description" : "Тип определён",
+            "destinationId" : "15",
+            "id" : "35",
+            "sourceId" : "13",
+            "tags" : "Relationship"
+          } ],
+          "tags" : "Element,Component",
+          "technology" : "Раскладка по 5 типам: договор/счёт/акт/выписка/прочее"
+        }, {
+          "description" : "Google Sheets→Append Row",
+          "documentation" : { },
+          "id" : "14",
+          "name" : "Sheets Writer",
+          "properties" : {
+            "structurizr.dsl.identifier" : "sheets_writer"
+          },
+          "tags" : "Element,Component",
+          "technology" : "Запись в нужный лист реестра"
+        }, {
+          "description" : "Google Drive→Move",
+          "documentation" : { },
+          "id" : "15",
+          "name" : "Drive Mover",
+          "properties" : {
+            "structurizr.dsl.identifier" : "drive_mover"
+          },
+          "tags" : "Element,Component",
+          "technology" : "Перекладывание файла в Обработанные/<тип>"
+        } ],
+        "description" : "N8N workflow 'Полигон'",
+        "documentation" : { },
+        "id" : "9",
+        "name" : "N8N Документовед",
+        "properties" : {
+          "structurizr.dsl.identifier" : "documentoved"
+        },
+        "relationships" : [ {
+          "description" : "OCR + LLM extract",
+          "destinationId" : "5",
+          "id" : "25",
+          "sourceId" : "9",
+          "tags" : "Relationship",
+          "technology" : "HTTPS"
+        }, {
+          "description" : "Файлы → Drive, поля → Sheets",
+          "destinationId" : "4",
+          "id" : "27",
+          "sourceId" : "9",
+          "tags" : "Relationship",
+          "technology" : "API"
+        } ],
+        "tags" : "Element,Container",
+        "technology" : "OCR + извлечение полей + запись в Sheets"
+      }, {
+        "description" : "N8N workflow",
+        "documentation" : { },
+        "id" : "16",
+        "name" : "N8N Контроллер",
+        "properties" : {
+          "structurizr.dsl.identifier" : "controller"
+        },
+        "relationships" : [ {
+          "description" : "Читает Sheets, ищет проблемы",
+          "destinationId" : "4",
+          "id" : "28",
+          "sourceId" : "16",
+          "tags" : "Relationship",
+          "technology" : "API"
+        }, {
+          "description" : "Триггерит алерт",
+          "destinationId" : "17",
+          "id" : "29",
+          "sourceId" : "16",
+          "tags" : "Relationship",
+          "technology" : "HTTP POST"
+        } ],
+        "tags" : "Element,Container",
+        "technology" : "Schedule + сверка по ИНН: ищет проблемы no_contract / draft_only / expired"
+      }, {
+        "description" : "Node.js, coo:3000",
+        "documentation" : { },
+        "id" : "17",
+        "name" : "Agent Caller",
+        "properties" : {
+          "structurizr.dsl.identifier" : "agentcaller"
+        },
+        "relationships" : [ {
+          "description" : "Отправляет в каналы",
+          "destinationId" : "6",
+          "id" : "30",
+          "sourceId" : "17",
+          "tags" : "Relationship",
+          "technology" : "API"
+        } ],
+        "tags" : "Element,Container",
+        "technology" : "Транспорт алертов: Telegram + WhatsApp + Email"
+      } ],
+      "description" : "Контур автоматической сверки документооборота на coo.gcp",
+      "documentation" : { },
+      "id" : "7",
+      "location" : "Unspecified",
+      "name" : "Compliance Helper",
+      "properties" : {
+        "structurizr.dsl.identifier" : "compliance"
+      },
+      "relationships" : [ {
+        "description" : "Шлёт алерты Таирову и Артёму",
+        "destinationId" : "6",
+        "id" : "19",
+        "sourceId" : "7",
+        "tags" : "Relationship",
+        "technology" : "API"
+      }, {
+        "description" : "Хранит файлы и реестр",
+        "destinationId" : "4",
+        "id" : "21",
+        "sourceId" : "7",
+        "tags" : "Relationship",
+        "technology" : "API"
+      }, {
+        "description" : "OCR + LLM extract",
+        "destinationId" : "5",
+        "id" : "26",
+        "linkedRelationshipId" : "25",
+        "sourceId" : "7",
+        "technology" : "HTTPS"
+      } ],
+      "tags" : "Element,Software System"
+    } ]
+  },
+  "name" : "Tairov Compliance Helper",
+  "properties" : {
+    "structurizr.dsl" : "d29ya3NwYWNlICJUYWlyb3YgQ29tcGxpYW5jZSBIZWxwZXIiICLQkNCy0YLQvtC80LDRgtC40LfQsNGG0LjRjyDQtNC+0LrRg9C80LXQvdGC0L7QvtCx0L7RgNC+0YLQsCDQmNCfINCi0LDQuNGA0L7QstCwIOKAlCDRgdCy0LXRgNC60LAg0LTQvtCz0L7QstC+0YDQvtCyL9GB0YfQtdGC0L7Qsi/QsNC60YLQvtCyLCDQsNC70LXRgNGC0Ysg0L/QviAzINGC0LjQv9Cw0Lwg0L/RgNC+0LHQu9C10LwiIHsKCiAgICAhZG9jcyAuL2RvY3MKICAgICFhZHJzIC4vZGVjaXNpb25zCgogICAgbW9kZWwgewogICAgICAgICMg0JDQutGC0L7RgNGLCiAgICAgICAgdGFpcm92ID0gcGVyc29uICLQmNCfINCi0LDQuNGA0L7QsiIgItCa0LvQuNC10L3Rgi4g0J/QvtC70YPRh9Cw0LXRgiDQsNC70LXRgNGC0YssINC+0YLQstC10YfQsNC10YIg0L3QsCDQv9C40YHRjNC80LAg0YEg0LTQvtC60YPQvNC10L3RgtCw0LzQuC4iCiAgICAgICAgYXJ0ZW0gPSBwZXJzb24gItCv0LrRiNC40L0g0JDRgNGC0ZHQvCIgItCe0L/QtdGA0LDRgtC+0YAg0YHQuNGB0YLQtdC80YsuINCf0L7Qu9GD0YfQsNC10YIg0LDQu9C10YDRgtGLLCDQtNC10LHQsNC20LjRgiwg0L7QsdC90L7QstC70Y/QtdGCINGA0LXQtdGB0YLRgC4iCgogICAgICAgICMg0JLQvdC10YjQvdC40LUg0YHQuNGB0YLQtdC80YsKICAgICAgICBtYWlscnUgPSBzb2Z0d2FyZVN5c3RlbSAibWFpbC5ydSBTTVRQL0lNQVAiICLQn9C+0YfRgtC+0LLRi9C5INGB0LXRgNCy0LXRgCA1NDU4NTA4QG1haWwucnUiICJFeHRlcm5hbCIKICAgICAgICBnb29nbGUgPSBzb2Z0d2FyZVN5c3RlbSAiR29vZ2xlIFdvcmtzcGFjZSIgIkRyaXZlICjRhdGA0LDQvdC40LvQuNGJ0LUg0YTQsNC50LvQvtCyKSArIFNoZWV0cyAo0YDQtdC10YHRgtGAINC00L7QutGD0LzQtdC90YLQvtCyKSIgIkV4dGVybmFsIgogICAgICAgIG9wZW5yb3V0ZXIgPSBzb2Z0d2FyZVN5c3RlbSAiT3BlblJvdXRlciBBUEkiICJRd2VuMy1WTCAoT0NSKSwgRGVlcFNlZWsgVjMgKExMTSBleHRyYWN0KSIgIkV4dGVybmFsIgogICAgICAgIG1lc3NlbmdlcnMgPSBzb2Z0d2FyZVN5c3RlbSAiVGVsZWdyYW0gKyBXaGF0c0FwcCArIEVtYWlsIiAi0JrQsNC90LDQu9GLINC00L7RgdGC0LDQstC60Lgg0LDQu9C10YDRgtC+0LIiICJFeHRlcm5hbCIKCiAgICAgICAgIyDQk9C70LDQstC90LDRjyDRgdC40YHRgtC10LzQsAogICAgICAgIGNvbXBsaWFuY2UgPSBzb2Z0d2FyZVN5c3RlbSAiQ29tcGxpYW5jZSBIZWxwZXIiICLQmtC+0L3RgtGD0YAg0LDQstGC0L7QvNCw0YLQuNGH0LXRgdC60L7QuSDRgdCy0LXRgNC60Lgg0LTQvtC60YPQvNC10L3RgtC+0L7QsdC+0YDQvtGC0LAg0L3QsCBjb28uZ2NwIiB7CiAgICAgICAgICAgIG1haWxzZXJ2aWNlID0gY29udGFpbmVyICJNYWlsIFNlcnZpY2UiICJOb2RlLmpzLCBjb286ODc2NSIgIklNQVAt0YHQu9GD0YjQsNGC0LXQu9GMOiDQv9Cw0YDRgdC40YIg0L/QuNGB0YzQvNCwINC+0YIg0KLQsNC40YDQvtCy0LAsINC+0YLQtNCw0ZHRgiDQv9C+IEhUVFAiIAogICAgICAgICAgICAKICAgICAgICAgICAgZG9jdW1lbnRvdmVkID0gY29udGFpbmVyICJOOE4g0JTQvtC60YPQvNC10L3RgtC+0LLQtdC0IiAiTjhOIHdvcmtmbG93ICfQn9C+0LvQuNCz0L7QvSciICJPQ1IgKyDQuNC30LLQu9C10YfQtdC90LjQtSDQv9C+0LvQtdC5ICsg0LfQsNC/0LjRgdGMINCyIFNoZWV0cyIgewogICAgICAgICAgICAgICAgb2NyID0gY29tcG9uZW50ICJPQ1IgU3RlcCIgIkhUVFDihpJRd2VuMy1WTCIgItCY0LfQstC70LXQutCw0LXRgiDRgtC10LrRgdGCINC40LcgUERGL0pQRyDQsiBNYXJrZG93biIKICAgICAgICAgICAgICAgIGV4dHJhY3QgPSBjb21wb25lbnQgIkxMTSBFeHRyYWN0IiAiSFRUUOKGkkRlZXBTZWVrIFYzIiAi0JjQt9Cy0LvQtdC60LDQtdGCINGB0YLRgNGD0LrRgtGD0YDQuNGA0L7QstCw0L3QvdGL0LUg0L/QvtC70Y8gKNGC0LjQvywg0LrQvtC90YLRgNCw0LPQtdC90YIsINCY0J3QnSwg0YHRg9C80LzQsCwg0LTQsNGC0LApIgogICAgICAgICAgICAgICAgdmFsaWRhdGUgPSBjb21wb25lbnQgIlZhbGlkYXRlIiAiQ29kZS3QvdC+0LTQsCIgItCf0YDQvtCy0LXRgNC60LAg0LrQvtGA0YDQtdC60YLQvdC+0YHRgtC4INC/0L7Qu9C10LkiCiAgICAgICAgICAgICAgICByb3V0ZXIgPSBjb21wb25lbnQgIlR5cGUgU3dpdGNoIiAiU3dpdGNoLdC90L7QtNCwIiAi0KDQsNGB0LrQu9Cw0LTQutCwINC/0L4gNSDRgtC40L/QsNC8OiDQtNC+0LPQvtCy0L7RgC/RgdGH0ZHRgi/QsNC60YIv0LLRi9C/0LjRgdC60LAv0L/RgNC+0YfQtdC1IgogICAgICAgICAgICAgICAgc2hlZXRzX3dyaXRlciA9IGNvbXBvbmVudCAiU2hlZXRzIFdyaXRlciIgIkdvb2dsZSBTaGVldHPihpJBcHBlbmQgUm93IiAi0JfQsNC/0LjRgdGMINCyINC90YPQttC90YvQuSDQu9C40YHRgiDRgNC10LXRgdGC0YDQsCIKICAgICAgICAgICAgICAgIGRyaXZlX21vdmVyID0gY29tcG9uZW50ICJEcml2ZSBNb3ZlciIgIkdvb2dsZSBEcml2ZeKGkk1vdmUiICLQn9C10YDQtdC60LvQsNC00YvQstCw0L3QuNC1INGE0LDQudC70LAg0LIg0J7QsdGA0LDQsdC+0YLQsNC90L3Ri9C1LzzRgtC40L8+IgogICAgICAgICAgICB9CiAgICAgICAgICAgIAogICAgICAgICAgICBjb250cm9sbGVyID0gY29udGFpbmVyICJOOE4g0JrQvtC90YLRgNC+0LvQu9C10YAiICJOOE4gd29ya2Zsb3ciICJTY2hlZHVsZSArINGB0LLQtdGA0LrQsCDQv9C+INCY0J3QnTog0LjRidC10YIg0L/RgNC+0LHQu9C10LzRiyBub19jb250cmFjdCAvIGRyYWZ0X29ubHkgLyBleHBpcmVkIgogICAgICAgICAgICAKICAgICAgICAgICAgYWdlbnRjYWxsZXIgPSBjb250YWluZXIgIkFnZW50IENhbGxlciIgIk5vZGUuanMsIGNvbzozMDAwIiAi0KLRgNCw0L3RgdC/0L7RgNGCINCw0LvQtdGA0YLQvtCyOiBUZWxlZ3JhbSArIFdoYXRzQXBwICsgRW1haWwiCiAgICAgICAgfQoKICAgICAgICAjINCh0LLRj9C30LggKENvbnRleHQg0YPRgNC+0LLQtdC90YwpCiAgICAgICAgdGFpcm92IC0+IG1haWxydSAi0J7RgtCy0LXRh9Cw0LXRgiDQvdCwINC/0LjRgdGM0LzQsCDRgSDQtNC+0LrRg9C80LXQvdGC0LDQvNC4IiAiU01UUCIKICAgICAgICBjb21wbGlhbmNlIC0+IG1lc3NlbmdlcnMgItCo0LvRkdGCINCw0LvQtdGA0YLRiyDQotCw0LjRgNC+0LLRgyDQuCDQkNGA0YLRkdC80YMiICJBUEkiCiAgICAgICAgYXJ0ZW0gLT4gZ29vZ2xlICLQn9GA0L7RgdC80LDRgtGA0LjQstCw0LXRgiDRgNC10LXRgdGC0YAg0Lgg0YTQsNC50LvRiyIgIldlYiIKICAgICAgICBjb21wbGlhbmNlIC0+IGdvb2dsZSAi0KXRgNCw0L3QuNGCINGE0LDQudC70Ysg0Lgg0YDQtdC10YHRgtGAIiAiQVBJIgoKICAgICAgICAjINCh0LLRj9C30LggKENvbnRhaW5lciDRg9GA0L7QstC10L3RjCkKICAgICAgICBtYWlscnUgLT4gbWFpbHNlcnZpY2UgItCS0YXQvtC00Y/RidC40LUg0L/QuNGB0YzQvNCwINGBINCy0LvQvtC20LXQvdC40Y/QvNC4IiAiSU1BUCIKICAgICAgICBtYWlsc2VydmljZSAtPiBkb2N1bWVudG92ZWQgItCf0LXRgNC10LTQsNGR0YIgcGFyc2VkIEpTT04gKyBiaW5hcnkiICJIVFRQIFBPU1QiCiAgICAgICAgZG9jdW1lbnRvdmVkIC0+IG9wZW5yb3V0ZXIgIk9DUiArIExMTSBleHRyYWN0IiAiSFRUUFMiCiAgICAgICAgZG9jdW1lbnRvdmVkIC0+IGdvb2dsZSAi0KTQsNC50LvRiyDihpIgRHJpdmUsINC/0L7Qu9GPIOKGkiBTaGVldHMiICJBUEkiCiAgICAgICAgY29udHJvbGxlciAtPiBnb29nbGUgItCn0LjRgtCw0LXRgiBTaGVldHMsINC40YnQtdGCINC/0YDQvtCx0LvQtdC80YsiICJBUEkiCiAgICAgICAgY29udHJvbGxlciAtPiBhZ2VudGNhbGxlciAi0KLRgNC40LPQs9C10YDQuNGCINCw0LvQtdGA0YIiICJIVFRQIFBPU1QiCiAgICAgICAgYWdlbnRjYWxsZXIgLT4gbWVzc2VuZ2VycyAi0J7RgtC/0YDQsNCy0LvRj9C10YIg0LIg0LrQsNC90LDQu9GLIiAiQVBJIgoKICAgICAgICAjINCh0LLRj9C30LggKENvbXBvbmVudCDRg9GA0L7QstC10L3RjCDQstC90YPRgtGA0Lgg0JTQvtC60YPQvNC10L3RgtC+0LLQtdC00LApCiAgICAgICAgb2NyIC0+IGV4dHJhY3QgItCf0LXRgNC10LTQsNGR0YIgTWFya2Rvd24iCiAgICAgICAgZXh0cmFjdCAtPiB2YWxpZGF0ZSAi0J/QtdGA0LXQtNCw0ZHRgiBKU09OIgogICAgICAgIHZhbGlkYXRlIC0+IHJvdXRlciAi0J7RgtCy0LDQu9C40LTQuNGA0L7QstCw0L3QvdGL0LUg0L/QvtC70Y8iCiAgICAgICAgcm91dGVyIC0+IHNoZWV0c193cml0ZXIgItCi0LjQvyDQvtC/0YDQtdC00LXQu9GR0L0iCiAgICAgICAgcm91dGVyIC0+IGRyaXZlX21vdmVyICLQotC40L8g0L7Qv9GA0LXQtNC10LvRkdC9IgogICAgfQoKICAgIHZpZXdzIHsKICAgICAgICBzeXN0ZW1Db250ZXh0IGNvbXBsaWFuY2UgIlN5c3RlbUNvbnRleHQiICJDb21wbGlhbmNlIEhlbHBlciDigJQg0LrQvtC90YLQtdC60YHRgiIgewogICAgICAgICAgICBpbmNsdWRlICoKICAgICAgICAgICAgYXV0b2xheW91dCBscgogICAgICAgIH0KCiAgICAgICAgY29udGFpbmVyIGNvbXBsaWFuY2UgIkNvbnRhaW5lcnMiICJDb21wbGlhbmNlIEhlbHBlciDigJQg0LrQvtC90YLQtdC50L3QtdGA0YsiIHsKICAgICAgICAgICAgaW5jbHVkZSAqCiAgICAgICAgICAgIGF1dG9sYXlvdXQgdGIKICAgICAgICB9CgogICAgICAgIGNvbXBvbmVudCBkb2N1bWVudG92ZWQgIkRvY3VtZW50b3ZlZENvbXBvbmVudHMiICLQlNC+0LrRg9C80LXQvdGC0L7QstC10LQg4oCUINCy0L3Rg9GC0YDQtdC90L3QuNC1INC60L7QvNC/0L7QvdC10L3RgtGLIiB7CiAgICAgICAgICAgIGluY2x1ZGUgKgogICAgICAgICAgICBhdXRvbGF5b3V0IGxyCiAgICAgICAgfQoKICAgICAgICBzdHlsZXMgewogICAgICAgICAgICBlbGVtZW50ICJQZXJzb24iIHsKICAgICAgICAgICAgICAgIHNoYXBlIFBlcnNvbgogICAgICAgICAgICAgICAgYmFja2dyb3VuZCAjMDg0MjdCCiAgICAgICAgICAgICAgICBjb2xvciAjZmZmZmZmCiAgICAgICAgICAgIH0KICAgICAgICAgICAgZWxlbWVudCAiRXh0ZXJuYWwiIHsKICAgICAgICAgICAgICAgIGJhY2tncm91bmQgIzk5OTk5OQogICAgICAgICAgICAgICAgY29sb3IgI2ZmZmZmZgogICAgICAgICAgICB9CiAgICAgICAgICAgIGVsZW1lbnQgIlNvZnR3YXJlIFN5c3RlbSIgewogICAgICAgICAgICAgICAgYmFja2dyb3VuZCAjMTE2OEJECiAgICAgICAgICAgICAgICBjb2xvciAjZmZmZmZmCiAgICAgICAgICAgIH0KICAgICAgICAgICAgZWxlbWVudCAiQ29udGFpbmVyIiB7CiAgICAgICAgICAgICAgICBiYWNrZ3JvdW5kICM0MzhERDUKICAgICAgICAgICAgICAgIGNvbG9yICNmZmZmZmYKICAgICAgICAgICAgfQogICAgICAgICAgICBlbGVtZW50ICJDb21wb25lbnQiIHsKICAgICAgICAgICAgICAgIGJhY2tncm91bmQgIzg1QkJGMAogICAgICAgICAgICAgICAgY29sb3IgIzAwMDAwMAogICAgICAgICAgICB9CiAgICAgICAgfQoKICAgICAgICB0aGVtZSBkZWZhdWx0CiAgICB9Cn0="
+  },
+  "views" : {
+    "componentViews" : [ {
+      "automaticLayout" : {
+        "applied" : false,
+        "edgeSeparation" : 0,
+        "implementation" : "Graphviz",
+        "nodeSeparation" : 300,
+        "rankDirection" : "LeftRight",
+        "rankSeparation" : 300,
+        "vertices" : false
+      },
+      "containerId" : "9",
+      "description" : "Документовед — внутренние компоненты",
+      "elements" : [ {
+        "id" : "10",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "11",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "12",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "13",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "14",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "15",
+        "x" : 0,
+        "y" : 0
+      } ],
+      "externalContainerBoundariesVisible" : false,
+      "key" : "DocumentovedComponents",
+      "order" : 3,
+      "relationships" : [ {
+        "id" : "31"
+      }, {
+        "id" : "32"
+      }, {
+        "id" : "33"
+      }, {
+        "id" : "34"
+      }, {
+        "id" : "35"
+      } ]
+    } ],
+    "configuration" : {
+      "branding" : { },
+      "lastSavedView" : "SystemContext",
+      "styles" : {
+        "elements" : [ {
+          "background" : "#08427b",
+          "color" : "#ffffff",
+          "shape" : "Person",
+          "tag" : "Person"
+        }, {
+          "background" : "#999999",
+          "color" : "#ffffff",
+          "tag" : "External"
+        }, {
+          "background" : "#1168bd",
+          "color" : "#ffffff",
+          "tag" : "Software System"
+        }, {
+          "background" : "#438dd5",
+          "color" : "#ffffff",
+          "tag" : "Container"
+        }, {
+          "background" : "#85bbf0",
+          "color" : "#000000",
+          "tag" : "Component"
+        } ]
+      },
+      "terminology" : { },
+      "themes" : [ "https://static.structurizr.com/themes/default/theme.json" ]
+    },
+    "containerViews" : [ {
+      "automaticLayout" : {
+        "applied" : false,
+        "edgeSeparation" : 0,
+        "implementation" : "Graphviz",
+        "nodeSeparation" : 300,
+        "rankDirection" : "TopBottom",
+        "rankSeparation" : 300,
+        "vertices" : false
+      },
+      "description" : "Compliance Helper — контейнеры",
+      "elements" : [ {
+        "id" : "3",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "4",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "5",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "6",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "8",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "9",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "16",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "17",
+        "x" : 0,
+        "y" : 0
+      } ],
+      "externalSoftwareSystemBoundariesVisible" : false,
+      "key" : "Containers",
+      "order" : 2,
+      "relationships" : [ {
+        "id" : "22"
+      }, {
+        "id" : "24"
+      }, {
+        "id" : "25"
+      }, {
+        "id" : "27"
+      }, {
+        "id" : "28"
+      }, {
+        "id" : "29"
+      }, {
+        "id" : "30"
+      } ],
+      "softwareSystemId" : "7"
+    } ],
+    "systemContextViews" : [ {
+      "automaticLayout" : {
+        "applied" : false,
+        "edgeSeparation" : 0,
+        "implementation" : "Graphviz",
+        "nodeSeparation" : 300,
+        "rankDirection" : "LeftRight",
+        "rankSeparation" : 300,
+        "vertices" : false
+      },
+      "description" : "Compliance Helper — контекст",
+      "elements" : [ {
+        "id" : "3",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "4",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "5",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "6",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "7",
+        "x" : 0,
+        "y" : 0
+      } ],
+      "enterpriseBoundaryVisible" : true,
+      "key" : "SystemContext",
+      "order" : 1,
+      "relationships" : [ {
+        "id" : "19"
+      }, {
+        "id" : "21"
+      }, {
+        "id" : "23"
+      }, {
+        "id" : "26"
+      } ],
+      "softwareSystemId" : "7"
+    } ]
+  }
+}

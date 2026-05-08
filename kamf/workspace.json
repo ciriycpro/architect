@@ -1,0 +1,744 @@
+{
+  "configuration" : { },
+  "description" : "Kafka Agent Multi-Agent Framework — мультиагентная платформа SIRIUS PRO",
+  "documentation" : { },
+  "id" : 1,
+  "lastModifiedDate" : "2026-05-06T20:16:27Z",
+  "model" : {
+    "people" : [ {
+      "description" : "Создаёт и поддерживает агентов",
+      "id" : "1",
+      "location" : "Unspecified",
+      "name" : "Архитектор",
+      "properties" : {
+        "structurizr.dsl.identifier" : "architect"
+      },
+      "relationships" : [ {
+        "description" : "Описывает агентов в DSL, деплоит",
+        "destinationId" : "6",
+        "id" : "22",
+        "sourceId" : "1",
+        "tags" : "Relationship"
+      } ],
+      "tags" : "Element,Person"
+    }, {
+      "description" : "Запускает и мониторит сценарии",
+      "id" : "2",
+      "location" : "Unspecified",
+      "name" : "Оператор",
+      "properties" : {
+        "structurizr.dsl.identifier" : "operator"
+      },
+      "relationships" : [ {
+        "description" : "Запускает сценарии",
+        "destinationId" : "6",
+        "id" : "23",
+        "sourceId" : "2",
+        "tags" : "Relationship"
+      }, {
+        "description" : "Запросы",
+        "destinationId" : "7",
+        "id" : "27",
+        "sourceId" : "2",
+        "tags" : "Relationship",
+        "technology" : "HTTPS"
+      } ],
+      "tags" : "Element,Person"
+    } ],
+    "softwareSystems" : [ {
+      "description" : "OpenAI, Anthropic, OpenRouter, Ollama",
+      "documentation" : { },
+      "id" : "3",
+      "location" : "Unspecified",
+      "name" : "LLM Providers",
+      "properties" : {
+        "structurizr.dsl.identifier" : "llm"
+      },
+      "tags" : "Element,Software System,External"
+    }, {
+      "description" : "Telegram, WhatsApp, Email",
+      "documentation" : { },
+      "id" : "4",
+      "location" : "Unspecified",
+      "name" : "Каналы доставки",
+      "properties" : {
+        "structurizr.dsl.identifier" : "channels"
+      },
+      "tags" : "Element,Software System,External"
+    }, {
+      "description" : "Корпоративные БД, API",
+      "documentation" : { },
+      "id" : "5",
+      "location" : "Unspecified",
+      "name" : "Источники данных",
+      "properties" : {
+        "structurizr.dsl.identifier" : "datasources"
+      },
+      "tags" : "Element,Software System,External"
+    }, {
+      "containers" : [ {
+        "description" : "Go + gRPC/REST",
+        "documentation" : { },
+        "id" : "7",
+        "name" : "API Gateway",
+        "properties" : {
+          "structurizr.dsl.identifier" : "api"
+        },
+        "relationships" : [ {
+          "description" : "Маршрут",
+          "destinationId" : "8",
+          "id" : "28",
+          "sourceId" : "7",
+          "tags" : "Relationship",
+          "technology" : "gRPC"
+        }, {
+          "description" : "Webhooks",
+          "destinationId" : "4",
+          "id" : "48",
+          "sourceId" : "7",
+          "tags" : "Relationship",
+          "technology" : "HTTPS"
+        }, {
+          "description" : "Запрос на маршрутизацию",
+          "destinationId" : "10",
+          "id" : "49",
+          "sourceId" : "7",
+          "tags" : "Relationship"
+        } ],
+        "tags" : "Element,Container",
+        "technology" : "Внешняя точка входа"
+      }, {
+        "components" : [ {
+          "description" : "Go",
+          "documentation" : { },
+          "id" : "9",
+          "name" : "Lifecycle Manager",
+          "properties" : {
+            "structurizr.dsl.identifier" : "lifecycle"
+          },
+          "relationships" : [ {
+            "description" : "CRUD агентов",
+            "destinationId" : "13",
+            "id" : "52",
+            "sourceId" : "9",
+            "tags" : "Relationship"
+          } ],
+          "tags" : "Element,Component",
+          "technology" : "Spawn / scale / kill агентов"
+        }, {
+          "description" : "Go",
+          "documentation" : { },
+          "id" : "10",
+          "name" : "Task Router",
+          "properties" : {
+            "structurizr.dsl.identifier" : "router"
+          },
+          "relationships" : [ {
+            "description" : "Запрос агента",
+            "destinationId" : "9",
+            "id" : "50",
+            "sourceId" : "10",
+            "tags" : "Relationship"
+          }, {
+            "description" : "Постановка задачи",
+            "destinationId" : "12",
+            "id" : "51",
+            "sourceId" : "10",
+            "tags" : "Relationship"
+          } ],
+          "tags" : "Element,Component",
+          "technology" : "Маршрутизация по A2A"
+        }, {
+          "description" : "Go",
+          "documentation" : { },
+          "id" : "11",
+          "name" : "Health Checker",
+          "properties" : {
+            "structurizr.dsl.identifier" : "health"
+          },
+          "relationships" : [ {
+            "description" : "Heartbeat",
+            "destinationId" : "14",
+            "id" : "54",
+            "sourceId" : "11",
+            "tags" : "Relationship"
+          }, {
+            "description" : "Статус",
+            "destinationId" : "13",
+            "id" : "55",
+            "sourceId" : "11",
+            "tags" : "Relationship"
+          } ],
+          "tags" : "Element,Component",
+          "technology" : "Мониторинг состояния агентов"
+        }, {
+          "description" : "Go",
+          "documentation" : { },
+          "id" : "12",
+          "name" : "Scheduler",
+          "properties" : {
+            "structurizr.dsl.identifier" : "scheduler"
+          },
+          "relationships" : [ {
+            "description" : "Публикация",
+            "destinationId" : "14",
+            "id" : "53",
+            "sourceId" : "12",
+            "tags" : "Relationship"
+          } ],
+          "tags" : "Element,Component",
+          "technology" : "Планирование задач"
+        } ],
+        "description" : "Go",
+        "documentation" : { },
+        "id" : "8",
+        "name" : "Orchestrator",
+        "properties" : {
+          "structurizr.dsl.identifier" : "orchestrator"
+        },
+        "relationships" : [ {
+          "description" : "Поиск агентов",
+          "destinationId" : "13",
+          "id" : "29",
+          "sourceId" : "8",
+          "tags" : "Relationship",
+          "technology" : "SQL"
+        }, {
+          "description" : "Публикация задач",
+          "destinationId" : "14",
+          "id" : "30",
+          "sourceId" : "8",
+          "tags" : "Relationship",
+          "technology" : "Kafka"
+        }, {
+          "description" : "Очереди, кэш",
+          "destinationId" : "20",
+          "id" : "31",
+          "sourceId" : "8",
+          "tags" : "Relationship",
+          "technology" : "RESP"
+        } ],
+        "tags" : "Element,Container",
+        "technology" : "Управление агентами, маршрутизация"
+      }, {
+        "description" : "Go",
+        "documentation" : { },
+        "id" : "13",
+        "name" : "Agent Registry",
+        "properties" : {
+          "structurizr.dsl.identifier" : "registry"
+        },
+        "tags" : "Element,Container",
+        "technology" : "Реестр агентов и capabilities"
+      }, {
+        "description" : "Apache Kafka",
+        "documentation" : { },
+        "id" : "14",
+        "name" : "Kafka Bus",
+        "properties" : {
+          "structurizr.dsl.identifier" : "kafka"
+        },
+        "relationships" : [ {
+          "description" : "Доставка задач",
+          "destinationId" : "15",
+          "id" : "32",
+          "sourceId" : "14",
+          "tags" : "Relationship",
+          "technology" : "Kafka"
+        }, {
+          "description" : "Доставка задач",
+          "destinationId" : "16",
+          "id" : "33",
+          "sourceId" : "14",
+          "tags" : "Relationship",
+          "technology" : "Kafka"
+        }, {
+          "description" : "Доставка задач",
+          "destinationId" : "17",
+          "id" : "34",
+          "sourceId" : "14",
+          "tags" : "Relationship",
+          "technology" : "Kafka"
+        } ],
+        "tags" : "Element,Container,MessageBus",
+        "technology" : "Магистраль межагентного обмена"
+      }, {
+        "description" : "Python + LangGraph",
+        "documentation" : { },
+        "id" : "15",
+        "name" : "Planner Agent",
+        "properties" : {
+          "structurizr.dsl.identifier" : "planner"
+        },
+        "relationships" : [ {
+          "description" : "Подзадачи",
+          "destinationId" : "14",
+          "id" : "35",
+          "sourceId" : "15",
+          "tags" : "Relationship",
+          "technology" : "Kafka"
+        }, {
+          "description" : "Инструменты",
+          "destinationId" : "18",
+          "id" : "38",
+          "sourceId" : "15",
+          "tags" : "Relationship",
+          "technology" : "MCP"
+        }, {
+          "description" : "LLM запросы",
+          "destinationId" : "3",
+          "id" : "41",
+          "sourceId" : "15",
+          "tags" : "Relationship",
+          "technology" : "HTTPS"
+        }, {
+          "description" : "Состояние",
+          "destinationId" : "19",
+          "id" : "46",
+          "sourceId" : "15",
+          "tags" : "Relationship",
+          "technology" : "SQL"
+        } ],
+        "tags" : "Element,Container",
+        "technology" : "Декомпозиция задач"
+      }, {
+        "description" : "Python",
+        "documentation" : { },
+        "id" : "16",
+        "name" : "Executor Agent",
+        "properties" : {
+          "structurizr.dsl.identifier" : "executor"
+        },
+        "relationships" : [ {
+          "description" : "Результаты",
+          "destinationId" : "14",
+          "id" : "36",
+          "sourceId" : "16",
+          "tags" : "Relationship",
+          "technology" : "Kafka"
+        }, {
+          "description" : "Инструменты",
+          "destinationId" : "18",
+          "id" : "39",
+          "sourceId" : "16",
+          "tags" : "Relationship",
+          "technology" : "MCP"
+        }, {
+          "description" : "LLM запросы",
+          "destinationId" : "3",
+          "id" : "42",
+          "sourceId" : "16",
+          "tags" : "Relationship",
+          "technology" : "HTTPS"
+        }, {
+          "description" : "Результаты",
+          "destinationId" : "19",
+          "id" : "47",
+          "sourceId" : "16",
+          "tags" : "Relationship",
+          "technology" : "SQL"
+        } ],
+        "tags" : "Element,Container",
+        "technology" : "Выполнение действий через MCP"
+      }, {
+        "description" : "Python",
+        "documentation" : { },
+        "id" : "17",
+        "name" : "Evaluator Agent",
+        "properties" : {
+          "structurizr.dsl.identifier" : "evaluator"
+        },
+        "relationships" : [ {
+          "description" : "Оценки",
+          "destinationId" : "14",
+          "id" : "37",
+          "sourceId" : "17",
+          "tags" : "Relationship",
+          "technology" : "Kafka"
+        }, {
+          "description" : "Валидаторы",
+          "destinationId" : "18",
+          "id" : "40",
+          "sourceId" : "17",
+          "tags" : "Relationship",
+          "technology" : "MCP"
+        }, {
+          "description" : "LLM запросы",
+          "destinationId" : "3",
+          "id" : "43",
+          "sourceId" : "17",
+          "tags" : "Relationship",
+          "technology" : "HTTPS"
+        } ],
+        "tags" : "Element,Container",
+        "technology" : "Оценка качества результатов"
+      }, {
+        "description" : "Go",
+        "documentation" : { },
+        "id" : "18",
+        "name" : "MCP Server",
+        "properties" : {
+          "structurizr.dsl.identifier" : "mcp"
+        },
+        "relationships" : [ {
+          "description" : "Доступ к данным",
+          "destinationId" : "5",
+          "id" : "44",
+          "sourceId" : "18",
+          "tags" : "Relationship",
+          "technology" : "REST"
+        }, {
+          "description" : "RAG поиск",
+          "destinationId" : "21",
+          "id" : "45",
+          "sourceId" : "18",
+          "tags" : "Relationship",
+          "technology" : "REST"
+        } ],
+        "tags" : "Element,Container",
+        "technology" : "Инструменты для агентов по MCP-протоколу"
+      }, {
+        "description" : "PostgreSQL 16",
+        "documentation" : { },
+        "id" : "19",
+        "name" : "PostgreSQL",
+        "properties" : {
+          "structurizr.dsl.identifier" : "postgres"
+        },
+        "tags" : "Element,Container,Database",
+        "technology" : "Состояния, история, метаданные"
+      }, {
+        "description" : "Redis 7",
+        "documentation" : { },
+        "id" : "20",
+        "name" : "Redis",
+        "properties" : {
+          "structurizr.dsl.identifier" : "redis"
+        },
+        "tags" : "Element,Container,Database",
+        "technology" : "Кэш, очереди, дедупликация"
+      }, {
+        "description" : "Milvus / pgvector",
+        "documentation" : { },
+        "id" : "21",
+        "name" : "Vector Store",
+        "properties" : {
+          "structurizr.dsl.identifier" : "vectordb"
+        },
+        "tags" : "Element,Container,Database",
+        "technology" : "Эмбеддинги для RAG"
+      } ],
+      "description" : "Multi-Agent Framework на базе Kafka, A2A, MCP",
+      "documentation" : { },
+      "id" : "6",
+      "location" : "Unspecified",
+      "name" : "KAMF",
+      "properties" : {
+        "structurizr.dsl.identifier" : "kamf"
+      },
+      "relationships" : [ {
+        "description" : "Запросы к LLM",
+        "destinationId" : "3",
+        "id" : "24",
+        "sourceId" : "6",
+        "tags" : "Relationship",
+        "technology" : "HTTPS/REST"
+      }, {
+        "description" : "Отправляет ответы",
+        "destinationId" : "4",
+        "id" : "25",
+        "sourceId" : "6",
+        "tags" : "Relationship",
+        "technology" : "HTTPS/Webhooks"
+      }, {
+        "description" : "Читает/пишет",
+        "destinationId" : "5",
+        "id" : "26",
+        "sourceId" : "6",
+        "tags" : "Relationship",
+        "technology" : "JDBC/REST"
+      } ],
+      "tags" : "Element,Software System"
+    } ]
+  },
+  "name" : "KAMF",
+  "properties" : {
+    "structurizr.dsl" : "d29ya3NwYWNlICJLQU1GIiAiS2Fma2EgQWdlbnQgTXVsdGktQWdlbnQgRnJhbWV3b3JrIOKAlCDQvNGD0LvRjNGC0LjQsNCz0LXQvdGC0L3QsNGPINC/0LvQsNGC0YTQvtGA0LzQsCBTSVJJVVMgUFJPIiB7CgogICAgbW9kZWwgewogICAgICAgICMg0JLQvdC10YjQvdC40LUg0LDQutGC0L7RgNGLCiAgICAgICAgYXJjaGl0ZWN0ID0gcGVyc29uICLQkNGA0YXQuNGC0LXQutGC0L7RgCIgItCh0L7Qt9C00LDRkdGCINC4INC/0L7QtNC00LXRgNC20LjQstCw0LXRgiDQsNCz0LXQvdGC0L7QsiIKICAgICAgICBvcGVyYXRvciA9IHBlcnNvbiAi0J7Qv9C10YDQsNGC0L7RgCIgItCX0LDQv9GD0YHQutCw0LXRgiDQuCDQvNC+0L3QuNGC0L7RgNC40YIg0YHRhtC10L3QsNGA0LjQuCIKCiAgICAgICAgIyDQktC90LXRiNC90LjQtSDRgdC40YHRgtC10LzRiwogICAgICAgIGxsbSA9IHNvZnR3YXJlU3lzdGVtICJMTE0gUHJvdmlkZXJzIiAiT3BlbkFJLCBBbnRocm9waWMsIE9wZW5Sb3V0ZXIsIE9sbGFtYSIgIkV4dGVybmFsIgogICAgICAgIGNoYW5uZWxzID0gc29mdHdhcmVTeXN0ZW0gItCa0LDQvdCw0LvRiyDQtNC+0YHRgtCw0LLQutC4IiAiVGVsZWdyYW0sIFdoYXRzQXBwLCBFbWFpbCIgIkV4dGVybmFsIgogICAgICAgIGRhdGFzb3VyY2VzID0gc29mdHdhcmVTeXN0ZW0gItCY0YHRgtC+0YfQvdC40LrQuCDQtNCw0L3QvdGL0YUiICLQmtC+0YDQv9C+0YDQsNGC0LjQstC90YvQtSDQkdCULCBBUEkiICJFeHRlcm5hbCIKCiAgICAgICAgIyDQk9C70LDQstC90LDRjyDRgdC40YHRgtC10LzQsCDigJQgS0FNRgogICAgICAgIGthbWYgPSBzb2Z0d2FyZVN5c3RlbSAiS0FNRiIgIk11bHRpLUFnZW50IEZyYW1ld29yayDQvdCwINCx0LDQt9C1IEthZmthLCBBMkEsIE1DUCIgewogICAgICAgICAgICBhcGkgPSBjb250YWluZXIgIkFQSSBHYXRld2F5IiAiR28gKyBnUlBDL1JFU1QiICLQktC90LXRiNC90Y/RjyDRgtC+0YfQutCwINCy0YXQvtC00LAiCiAgICAgICAgICAgIG9yY2hlc3RyYXRvciA9IGNvbnRhaW5lciAiT3JjaGVzdHJhdG9yIiAiR28iICLQo9C/0YDQsNCy0LvQtdC90LjQtSDQsNCz0LXQvdGC0LDQvNC4LCDQvNCw0YDRiNGA0YPRgtC40LfQsNGG0LjRjyIgewogICAgICAgICAgICAgICAgbGlmZWN5Y2xlID0gY29tcG9uZW50ICJMaWZlY3ljbGUgTWFuYWdlciIgIkdvIiAiU3Bhd24gLyBzY2FsZSAvIGtpbGwg0LDQs9C10L3RgtC+0LIiCiAgICAgICAgICAgICAgICByb3V0ZXIgPSBjb21wb25lbnQgIlRhc2sgUm91dGVyIiAiR28iICLQnNCw0YDRiNGA0YPRgtC40LfQsNGG0LjRjyDQv9C+IEEyQSIKICAgICAgICAgICAgICAgIGhlYWx0aCA9IGNvbXBvbmVudCAiSGVhbHRoIENoZWNrZXIiICJHbyIgItCc0L7QvdC40YLQvtGA0LjQvdCzINGB0L7RgdGC0L7Rj9C90LjRjyDQsNCz0LXQvdGC0L7QsiIKICAgICAgICAgICAgICAgIHNjaGVkdWxlciA9IGNvbXBvbmVudCAiU2NoZWR1bGVyIiAiR28iICLQn9C70LDQvdC40YDQvtCy0LDQvdC40LUg0LfQsNC00LDRhyIKICAgICAgICAgICAgfQogICAgICAgICAgICByZWdpc3RyeSA9IGNvbnRhaW5lciAiQWdlbnQgUmVnaXN0cnkiICJHbyIgItCg0LXQtdGB0YLRgCDQsNCz0LXQvdGC0L7QsiDQuCBjYXBhYmlsaXRpZXMiCiAgICAgICAgICAgIGthZmthID0gY29udGFpbmVyICJLYWZrYSBCdXMiICJBcGFjaGUgS2Fma2EiICLQnNCw0LPQuNGB0YLRgNCw0LvRjCDQvNC10LbQsNCz0LXQvdGC0L3QvtCz0L4g0L7QsdC80LXQvdCwIiAiTWVzc2FnZUJ1cyIKICAgICAgICAgICAgcGxhbm5lciA9IGNvbnRhaW5lciAiUGxhbm5lciBBZ2VudCIgIlB5dGhvbiArIExhbmdHcmFwaCIgItCU0LXQutC+0LzQv9C+0LfQuNGG0LjRjyDQt9Cw0LTQsNGHIgogICAgICAgICAgICBleGVjdXRvciA9IGNvbnRhaW5lciAiRXhlY3V0b3IgQWdlbnQiICJQeXRob24iICLQktGL0L/QvtC70L3QtdC90LjQtSDQtNC10LnRgdGC0LLQuNC5INGH0LXRgNC10LcgTUNQIgogICAgICAgICAgICBldmFsdWF0b3IgPSBjb250YWluZXIgIkV2YWx1YXRvciBBZ2VudCIgIlB5dGhvbiIgItCe0YbQtdC90LrQsCDQutCw0YfQtdGB0YLQstCwINGA0LXQt9GD0LvRjNGC0LDRgtC+0LIiCiAgICAgICAgICAgIG1jcCA9IGNvbnRhaW5lciAiTUNQIFNlcnZlciIgIkdvIiAi0JjQvdGB0YLRgNGD0LzQtdC90YLRiyDQtNC70Y8g0LDQs9C10L3RgtC+0LIg0L/QviBNQ1At0L/RgNC+0YLQvtC60L7Qu9GDIgogICAgICAgICAgICBwb3N0Z3JlcyA9IGNvbnRhaW5lciAiUG9zdGdyZVNRTCIgIlBvc3RncmVTUUwgMTYiICLQodC+0YHRgtC+0Y/QvdC40Y8sINC40YHRgtC+0YDQuNGPLCDQvNC10YLQsNC00LDQvdC90YvQtSIgIkRhdGFiYXNlIgogICAgICAgICAgICByZWRpcyA9IGNvbnRhaW5lciAiUmVkaXMiICJSZWRpcyA3IiAi0JrRjdGILCDQvtGH0LXRgNC10LTQuCwg0LTQtdC00YPQv9C70LjQutCw0YbQuNGPIiAiRGF0YWJhc2UiCiAgICAgICAgICAgIHZlY3RvcmRiID0gY29udGFpbmVyICJWZWN0b3IgU3RvcmUiICJNaWx2dXMgLyBwZ3ZlY3RvciIgItCt0LzQsdC10LTQtNC40L3Qs9C4INC00LvRjyBSQUciICJEYXRhYmFzZSIKICAgICAgICB9CgogICAgICAgICMg0KHQstGP0LfQuCAoQ29udGV4dCDRg9GA0L7QstC10L3RjCkKICAgICAgICBhcmNoaXRlY3QgLT4ga2FtZiAi0J7Qv9C40YHRi9Cy0LDQtdGCINCw0LPQtdC90YLQvtCyINCyIERTTCwg0LTQtdC/0LvQvtC40YIiCiAgICAgICAgb3BlcmF0b3IgLT4ga2FtZiAi0JfQsNC/0YPRgdC60LDQtdGCINGB0YbQtdC90LDRgNC40LgiCiAgICAgICAga2FtZiAtPiBsbG0gItCX0LDQv9GA0L7RgdGLINC6IExMTSIgIkhUVFBTL1JFU1QiCiAgICAgICAga2FtZiAtPiBjaGFubmVscyAi0J7RgtC/0YDQsNCy0LvRj9C10YIg0L7RgtCy0LXRgtGLIiAiSFRUUFMvV2ViaG9va3MiCiAgICAgICAga2FtZiAtPiBkYXRhc291cmNlcyAi0KfQuNGC0LDQtdGCL9C/0LjRiNC10YIiICJKREJDL1JFU1QiCgogICAgICAgICMg0KHQstGP0LfQuCAoQ29udGFpbmVyINGD0YDQvtCy0LXQvdGMKQogICAgICAgIG9wZXJhdG9yIC0+IGFwaSAi0JfQsNC/0YDQvtGB0YsiICJIVFRQUyIKICAgICAgICBhcGkgLT4gb3JjaGVzdHJhdG9yICLQnNCw0YDRiNGA0YPRgiIgImdSUEMiCiAgICAgICAgb3JjaGVzdHJhdG9yIC0+IHJlZ2lzdHJ5ICLQn9C+0LjRgdC6INCw0LPQtdC90YLQvtCyIiAiU1FMIgogICAgICAgIG9yY2hlc3RyYXRvciAtPiBrYWZrYSAi0J/Rg9Cx0LvQuNC60LDRhtC40Y8g0LfQsNC00LDRhyIgIkthZmthIgogICAgICAgIG9yY2hlc3RyYXRvciAtPiByZWRpcyAi0J7Rh9C10YDQtdC00LgsINC60Y3RiCIgIlJFU1AiCiAgICAgICAga2Fma2EgLT4gcGxhbm5lciAi0JTQvtGB0YLQsNCy0LrQsCDQt9Cw0LTQsNGHIiAiS2Fma2EiCiAgICAgICAga2Fma2EgLT4gZXhlY3V0b3IgItCU0L7RgdGC0LDQstC60LAg0LfQsNC00LDRhyIgIkthZmthIgogICAgICAgIGthZmthIC0+IGV2YWx1YXRvciAi0JTQvtGB0YLQsNCy0LrQsCDQt9Cw0LTQsNGHIiAiS2Fma2EiCiAgICAgICAgcGxhbm5lciAtPiBrYWZrYSAi0J/QvtC00LfQsNC00LDRh9C4IiAiS2Fma2EiCiAgICAgICAgZXhlY3V0b3IgLT4ga2Fma2EgItCg0LXQt9GD0LvRjNGC0LDRgtGLIiAiS2Fma2EiCiAgICAgICAgZXZhbHVhdG9yIC0+IGthZmthICLQntGG0LXQvdC60LgiICJLYWZrYSIKICAgICAgICBwbGFubmVyIC0+IG1jcCAi0JjQvdGB0YLRgNGD0LzQtdC90YLRiyIgIk1DUCIKICAgICAgICBleGVjdXRvciAtPiBtY3AgItCY0L3RgdGC0YDRg9C80LXQvdGC0YsiICJNQ1AiCiAgICAgICAgZXZhbHVhdG9yIC0+IG1jcCAi0JLQsNC70LjQtNCw0YLQvtGA0YsiICJNQ1AiCiAgICAgICAgcGxhbm5lciAtPiBsbG0gIkxMTSDQt9Cw0L/RgNC+0YHRiyIgIkhUVFBTIgogICAgICAgIGV4ZWN1dG9yIC0+IGxsbSAiTExNINC30LDQv9GA0L7RgdGLIiAiSFRUUFMiCiAgICAgICAgZXZhbHVhdG9yIC0+IGxsbSAiTExNINC30LDQv9GA0L7RgdGLIiAiSFRUUFMiCiAgICAgICAgbWNwIC0+IGRhdGFzb3VyY2VzICLQlNC+0YHRgtGD0L8g0Log0LTQsNC90L3Ri9C8IiAiUkVTVCIKICAgICAgICBtY3AgLT4gdmVjdG9yZGIgIlJBRyDQv9C+0LjRgdC6IiAiUkVTVCIKICAgICAgICBwbGFubmVyIC0+IHBvc3RncmVzICLQodC+0YHRgtC+0Y/QvdC40LUiICJTUUwiCiAgICAgICAgZXhlY3V0b3IgLT4gcG9zdGdyZXMgItCg0LXQt9GD0LvRjNGC0LDRgtGLIiAiU1FMIgogICAgICAgIGFwaSAtPiBjaGFubmVscyAiV2ViaG9va3MiICJIVFRQUyIKCiAgICAgICAgIyDQodCy0Y/Qt9C4IChDb21wb25lbnQg0YPRgNC+0LLQtdC90Ywg0LLQvdGD0YLRgNC4IE9yY2hlc3RyYXRvcikKICAgICAgICBhcGkgLT4gcm91dGVyICLQl9Cw0L/RgNC+0YEg0L3QsCDQvNCw0YDRiNGA0YPRgtC40LfQsNGG0LjRjiIKICAgICAgICByb3V0ZXIgLT4gbGlmZWN5Y2xlICLQl9Cw0L/RgNC+0YEg0LDQs9C10L3RgtCwIgogICAgICAgIHJvdXRlciAtPiBzY2hlZHVsZXIgItCf0L7RgdGC0LDQvdC+0LLQutCwINC30LDQtNCw0YfQuCIKICAgICAgICBsaWZlY3ljbGUgLT4gcmVnaXN0cnkgIkNSVUQg0LDQs9C10L3RgtC+0LIiCiAgICAgICAgc2NoZWR1bGVyIC0+IGthZmthICLQn9GD0LHQu9C40LrQsNGG0LjRjyIKICAgICAgICBoZWFsdGggLT4ga2Fma2EgIkhlYXJ0YmVhdCIKICAgICAgICBoZWFsdGggLT4gcmVnaXN0cnkgItCh0YLQsNGC0YPRgSIKICAgIH0KCiAgICB2aWV3cyB7CiAgICAgICAgc3lzdGVtQ29udGV4dCBrYW1mICJTeXN0ZW1Db250ZXh0IiAiS0FNRiDigJQg0YHQuNGB0YLQtdC80L3Ri9C5INC60L7QvdGC0LXQutGB0YIiIHsKICAgICAgICAgICAgaW5jbHVkZSAqCiAgICAgICAgICAgIGF1dG9sYXlvdXQgbHIKICAgICAgICB9CgogICAgICAgIGNvbnRhaW5lciBrYW1mICJDb250YWluZXJzIiAiS0FNRiDigJQg0LrQvtC90YLQtdC50L3QtdGA0YsiIHsKICAgICAgICAgICAgaW5jbHVkZSAqCiAgICAgICAgICAgIGF1dG9sYXlvdXQgdGIKICAgICAgICB9CgogICAgICAgIGNvbXBvbmVudCBvcmNoZXN0cmF0b3IgIk9yY2hlc3RyYXRvckNvbXBvbmVudHMiICJPcmNoZXN0cmF0b3Ig4oCUINC60L7QvNC/0L7QvdC10L3RgtGLIiB7CiAgICAgICAgICAgIGluY2x1ZGUgKgogICAgICAgICAgICBhdXRvbGF5b3V0IGxyCiAgICAgICAgfQoKICAgICAgICBzdHlsZXMgewogICAgICAgICAgICBlbGVtZW50ICJQZXJzb24iIHsKICAgICAgICAgICAgICAgIHNoYXBlIFBlcnNvbgogICAgICAgICAgICAgICAgYmFja2dyb3VuZCAjMDg0MjdCCiAgICAgICAgICAgICAgICBjb2xvciAjZmZmZmZmCiAgICAgICAgICAgIH0KICAgICAgICAgICAgZWxlbWVudCAiRXh0ZXJuYWwiIHsKICAgICAgICAgICAgICAgIGJhY2tncm91bmQgIzk5OTk5OQogICAgICAgICAgICAgICAgY29sb3IgI2ZmZmZmZgogICAgICAgICAgICB9CiAgICAgICAgICAgIGVsZW1lbnQgIlNvZnR3YXJlIFN5c3RlbSIgewogICAgICAgICAgICAgICAgYmFja2dyb3VuZCAjMTE2OEJECiAgICAgICAgICAgICAgICBjb2xvciAjZmZmZmZmCiAgICAgICAgICAgIH0KICAgICAgICAgICAgZWxlbWVudCAiQ29udGFpbmVyIiB7CiAgICAgICAgICAgICAgICBiYWNrZ3JvdW5kICM0MzhERDUKICAgICAgICAgICAgICAgIGNvbG9yICNmZmZmZmYKICAgICAgICAgICAgfQogICAgICAgICAgICBlbGVtZW50ICJDb21wb25lbnQiIHsKICAgICAgICAgICAgICAgIGJhY2tncm91bmQgIzg1QkJGMAogICAgICAgICAgICAgICAgY29sb3IgIzAwMDAwMAogICAgICAgICAgICB9CiAgICAgICAgICAgIGVsZW1lbnQgIkRhdGFiYXNlIiB7CiAgICAgICAgICAgICAgICBzaGFwZSBDeWxpbmRlcgogICAgICAgICAgICAgICAgYmFja2dyb3VuZCAjNDM4REQ1CiAgICAgICAgICAgICAgICBjb2xvciAjZmZmZmZmCiAgICAgICAgICAgIH0KICAgICAgICAgICAgZWxlbWVudCAiTWVzc2FnZUJ1cyIgewogICAgICAgICAgICAgICAgc2hhcGUgUGlwZQogICAgICAgICAgICAgICAgYmFja2dyb3VuZCAjRkY4QzAwCiAgICAgICAgICAgICAgICBjb2xvciAjZmZmZmZmCiAgICAgICAgICAgIH0KICAgICAgICB9CgogICAgICAgIHRoZW1lIGRlZmF1bHQKICAgIH0KfQ=="
+  },
+  "views" : {
+    "componentViews" : [ {
+      "automaticLayout" : {
+        "applied" : false,
+        "edgeSeparation" : 0,
+        "implementation" : "Graphviz",
+        "nodeSeparation" : 300,
+        "rankDirection" : "LeftRight",
+        "rankSeparation" : 300,
+        "vertices" : false
+      },
+      "containerId" : "8",
+      "description" : "Orchestrator — компоненты",
+      "elements" : [ {
+        "id" : "7",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "9",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "10",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "11",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "12",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "13",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "14",
+        "x" : 0,
+        "y" : 0
+      } ],
+      "externalContainerBoundariesVisible" : false,
+      "key" : "OrchestratorComponents",
+      "order" : 3,
+      "relationships" : [ {
+        "id" : "49"
+      }, {
+        "id" : "50"
+      }, {
+        "id" : "51"
+      }, {
+        "id" : "52"
+      }, {
+        "id" : "53"
+      }, {
+        "id" : "54"
+      }, {
+        "id" : "55"
+      } ]
+    } ],
+    "configuration" : {
+      "branding" : { },
+      "lastSavedView" : "OrchestratorComponents",
+      "styles" : {
+        "elements" : [ {
+          "background" : "#08427b",
+          "color" : "#ffffff",
+          "shape" : "Person",
+          "tag" : "Person"
+        }, {
+          "background" : "#999999",
+          "color" : "#ffffff",
+          "tag" : "External"
+        }, {
+          "background" : "#1168bd",
+          "color" : "#ffffff",
+          "tag" : "Software System"
+        }, {
+          "background" : "#438dd5",
+          "color" : "#ffffff",
+          "tag" : "Container"
+        }, {
+          "background" : "#85bbf0",
+          "color" : "#000000",
+          "tag" : "Component"
+        }, {
+          "background" : "#438dd5",
+          "color" : "#ffffff",
+          "shape" : "Cylinder",
+          "tag" : "Database"
+        }, {
+          "background" : "#ff8c00",
+          "color" : "#ffffff",
+          "shape" : "Pipe",
+          "tag" : "MessageBus"
+        } ]
+      },
+      "terminology" : { },
+      "themes" : [ "https://static.structurizr.com/themes/default/theme.json" ]
+    },
+    "containerViews" : [ {
+      "automaticLayout" : {
+        "applied" : false,
+        "edgeSeparation" : 0,
+        "implementation" : "Graphviz",
+        "nodeSeparation" : 300,
+        "rankDirection" : "TopBottom",
+        "rankSeparation" : 300,
+        "vertices" : false
+      },
+      "description" : "KAMF — контейнеры",
+      "elements" : [ {
+        "id" : "2",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "3",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "4",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "5",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "7",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "8",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "13",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "14",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "15",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "16",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "17",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "18",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "19",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "20",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "21",
+        "x" : 0,
+        "y" : 0
+      } ],
+      "externalSoftwareSystemBoundariesVisible" : false,
+      "key" : "Containers",
+      "order" : 2,
+      "relationships" : [ {
+        "id" : "27"
+      }, {
+        "id" : "28"
+      }, {
+        "id" : "29"
+      }, {
+        "id" : "30"
+      }, {
+        "id" : "31"
+      }, {
+        "id" : "32"
+      }, {
+        "id" : "33"
+      }, {
+        "id" : "34"
+      }, {
+        "id" : "35"
+      }, {
+        "id" : "36"
+      }, {
+        "id" : "37"
+      }, {
+        "id" : "38"
+      }, {
+        "id" : "39"
+      }, {
+        "id" : "40"
+      }, {
+        "id" : "41"
+      }, {
+        "id" : "42"
+      }, {
+        "id" : "43"
+      }, {
+        "id" : "44"
+      }, {
+        "id" : "45"
+      }, {
+        "id" : "46"
+      }, {
+        "id" : "47"
+      }, {
+        "id" : "48"
+      } ],
+      "softwareSystemId" : "6"
+    } ],
+    "systemContextViews" : [ {
+      "automaticLayout" : {
+        "applied" : false,
+        "edgeSeparation" : 0,
+        "implementation" : "Graphviz",
+        "nodeSeparation" : 300,
+        "rankDirection" : "LeftRight",
+        "rankSeparation" : 300,
+        "vertices" : false
+      },
+      "description" : "KAMF — системный контекст",
+      "elements" : [ {
+        "id" : "1",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "2",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "3",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "4",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "5",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "6",
+        "x" : 0,
+        "y" : 0
+      } ],
+      "enterpriseBoundaryVisible" : true,
+      "key" : "SystemContext",
+      "order" : 1,
+      "relationships" : [ {
+        "id" : "22"
+      }, {
+        "id" : "23"
+      }, {
+        "id" : "24"
+      }, {
+        "id" : "25"
+      }, {
+        "id" : "26"
+      } ],
+      "softwareSystemId" : "6"
+    } ]
+  }
+}
