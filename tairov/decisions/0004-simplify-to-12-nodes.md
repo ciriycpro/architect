@@ -4,7 +4,7 @@ Date: 2026-04-30
 
 ## Status
 
-Accepted (decision) — Not implemented as of 09.05.2026
+Accepted (decision) — Not implemented as of 09.05.2026 — **Superseded by [DEC-008](0008-parser-stack.md) on 12.05.2026** (заменён горизонтальным стеком mail-stack вместо монолитного N8N workflow)
 
 ## Context
 
