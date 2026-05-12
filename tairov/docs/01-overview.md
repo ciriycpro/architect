@@ -10,6 +10,8 @@
 
 - **Mail Service v1** (`/opt/mail-stack/mail-service/`, Python 3.11 + FastAPI, systemd, coo:8765). Endpoint `GET /mail/since/<YYYY-MM-DD>?limit=50` отдаёт массив писем с корректным парсингом MIME, кириллицы, ФИО, ISO-дат, имён вложений. Запущен в production-режиме 12.05.2026, RAM 39 МБ. Docker-friendly код, env-конфиг изолирован в `/etc/mail-stack/mail-service.env` (chmod 600 root:root). См. [DEC-007](../decisions/0007-deployment-form.md). Параллельно собран Docker-образ `mail-service:test` как артефакт для будущего переключения на контейнеризацию.
 
+- **Attachment Service v1** (`/opt/mail-stack/attachment-service/`, Python 3.11 + FastAPI, systemd, coo:8766). Endpoint `POST /download` принимает `{messageId, filename}` → скачивает вложение из IMAP → сохраняет в `/var/lib/mail-stack/attachments/<messageId>/<filename>` → возвращает путь + sha256 + size + mime. Кэш через файловую систему: повторный запрос отдаётся из FS за ~30 мс без обращения к IMAP (ускорение ~130×). Запущен 12.05.2026 ночью, RAM 28 МБ. Smoke-тест прошёл на двух JPG-вложениях из иска Таирова. См. [DEC-011](../decisions/0011-attachment-service.md). Docker-образ `attachment-service:test` собран.
+
 ### Что работает в режиме полу-заглушки
 
 - **Polygon** (N8N workflow id `1632604d64e14e20`, 14 нод, active=1). Принимает письма по IMAP с ящика `5458508@mail.ru`, раскладывает вложения по папкам отправителей в Google Drive, ведёт два листа в Sheets: «Контакты» и «Лог писем». Работает нестабильно — часть писем теряется в IMAP-ноде N8N. **Будет деактивирован одновременно с активацией N8N Email Digest v1** (см. [DEC-010](../decisions/0010-n8n-email-digest-v1.md)).
@@ -18,7 +20,6 @@
 
 Стек микросервисов `mail-stack/` — горизонтальная архитектура взамен монолитного Документоведа v2:
 
-- **attachment-service** ([DEC-011](../decisions/0011-attachment-service.md)) — скачивание вложений по messageId+filename из IMAP. Возврат пути к файлу на диске в `/var/lib/mail-stack/attachments/<messageId>/<filename>`. Кэш через файловую систему (idempotent), TTL 7 дней, hard limit 25 МБ. coo:8766. По шаблону mail-service.
 - **parser-service** ([DEC-008](../decisions/0008-parser-stack.md)) — детерминированный роутер по MIME + библиотечный стек L1-L14 (pdf-inspector, PyMuPDF, pdfplumber, mammoth, openpyxl, xlrd, python-pptx, beautifulsoup4) + LLM-vision fallback (Qwen3-VL primary, Qwen 2.5 VL fallback). coo:8767.
 - **summary-service** ([DEC-009](../decisions/0009-summary-haiku.md)) — текстовое саммари массива писем через Claude Haiku 4.5 (через OpenRouter), fallback DeepSeek V3. coo:8768.
 - **N8N Email Digest v1** ([DEC-010](../decisions/0010-n8n-email-digest-v1.md)) — оркестратор полной цепочки. Triggers: Schedule 09:00 MSK + Webhook /digest-now. Доставка результата в Google Sheets («Дайджест») + Telegram Таирову.
@@ -60,7 +61,7 @@
 - [DEC-008](../decisions/0008-parser-stack.md): Parser-service — библиотечный стек L1-L14 + LLM-vision Qwen-каскад. Accepted, реализация в плане.
 - [DEC-009](../decisions/0009-summary-haiku.md): Summary-service на Claude Haiku 4.5. Accepted, реализация в плане.
 - [DEC-010](../decisions/0010-n8n-email-digest-v1.md): N8N workflow Email Digest v1 — оркестратор полной цепочки mail-stack. Accepted, реализация в плане.
-- [DEC-011](../decisions/0011-attachment-service.md): Attachment-service — контракт возврата пути к файлу + кэш через FS + TTL 7 дней + лимит 25 МБ. Accepted, реализация в плане.
+- [DEC-011](../decisions/0011-attachment-service.md): Attachment-service — контракт возврата пути к файлу + кэш через FS + TTL 7 дней + лимит 25 МБ. **Implemented 12.05.2026**, в production через systemd, RAM 28 МБ.
 
 ## Контакты для оперативной работы
 

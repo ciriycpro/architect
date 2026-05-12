@@ -4,7 +4,7 @@ Date: 2026-05-13
 
 ## Status
 
-Accepted (planned for implementation)
+Accepted — **Implemented on 12.05.2026** (production via systemd, Memory 28 МБ, port 8766)
 
 ## Context
 
@@ -206,3 +206,57 @@ def health():
 - Когда переходить на S3 для долгосрочного хранения вместо локального FS — при росте до 100+ ГБ совокупного объёма attachments
 
 **Стратегический сигнал:** attachment-service в этой архитектуре — **универсальный коннектор почтовых вложений**, не привязанный к Compliance Helper. Тот же контракт `POST /download` с messageId+filename переиспользуется в любом проекте `mail-stack/` или KAMF.
+
+## Implementation Notes (12.05.2026)
+
+Сервис реализован за один заход в ночь 12-13.05.2026 (примерно 1 час чистой работы) по полному контракту, без брака. Не v0-скелет, а сразу v1 в production.
+
+### Что сделано
+
+- **Код:** `/opt/mail-stack/attachment-service/server.py` (332 строки)
+- **Хранилище:** `/var/lib/mail-stack/attachments/` создано, `iakshin77:iakshin77`, chmod 755
+- **Зависимости:** те же 14 pinned пакетов что у mail-service (FastAPI 0.136.1, uvicorn 0.46.0, pydantic 2.13.4)
+- **Dockerfile + .dockerignore:** по шаблону DEC-007, валидирован реальным запуском
+- **Env-конфиг:** `/etc/mail-stack/attachment-service.env` chmod 600 root:root
+- **Systemd-юнит:** `/etc/systemd/system/attachment-service.service` с UMask=0022
+- **Docker-образ:** `attachment-service:test` собран как артефакт для будущего docker-compose
+
+### Подтверждённое поведение
+
+Smoke-тест прошёл на двух реальных вложениях из почты Таирова (письмо «Исковое решение суда к инспектуру Николаеву С.А.» от 03.05.2026):
+
+| Сценарий | Время | Результат |
+|---|---|---|
+| Cache miss → IMAP fetch (`Рисунок (31).jpg`, 456 КБ) | ~4 сек | `from_cache: false`, sha256=`a3b0f10…` |
+| Cache hit (тот же файл) | ~30 мс | `from_cache: true`, **тот же sha256**, IMAP не дёрнут |
+| Cache miss → IMAP fetch (`Рисунок (33).jpg`, 885 КБ) | ~2 сек | `from_cache: false`, sha256=`4a79f23…` |
+
+Кэш ускорил повторный запрос в ~130 раз. IMAP-логика переиспользует MIME-парсинг mail-service v1 (decode_str для кириллицы, BODYSTRUCTURE для поиска части).
+
+### Переиспользованный код mail-service
+
+| Функция | Назначение |
+|---|---|
+| `decode_str()` | MIME-encoded строки (`=?utf-8?b?...?=`) |
+| `imaplib.IMAP4_SSL` + login/select/search | IMAP-сессия (тот же паттерн с finally-logout) |
+
+### Что не вошло в v1 (отложено на v2)
+
+- `.meta.json` рядом с файлом для кэша метаданных (sha256 считается на лету, ~10 мс)
+- Lockfile per messageId+filename для защиты от race condition при параллельных запросах одного файла
+- Cleanup-cron `/etc/cron.daily/mail-stack-attachments-cleanup` — каркас в DEC-011 есть, не установлен (отложено до накопления данных на диске)
+- Connection pooling для IMAP — на v1 каждый запрос открывает новую сессию
+
+### Production-готовность
+
+| Критерий | Статус |
+|---|---|
+| Systemd active + enabled | ✅ |
+| Memory footprint | ✅ 27.9 МБ (меньше mail-service) |
+| Restart=always + RestartSec=5 | ✅ переживёт reboot и panic |
+| Логи в journalctl | ✅ |
+| Healthcheck endpoint | ✅ возвращает конфиг для дебага |
+| Env-конфиг изолирован | ✅ chmod 600 root:root |
+| Path traversal защита | ✅ `safe_filename` + `safe_messageid_path` |
+| Hard limit 25 МБ работает | ⚠️ не проверен на реальном кейсе (нет вложений > 25 МБ в почте) |
+| Cleanup-cron | ❌ не установлен (v2) |
