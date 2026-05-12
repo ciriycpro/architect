@@ -21,7 +21,7 @@
       "status" : "Superseded",
       "title" : "IMAP-триггер на 5458508@mail.ru"
     }, {
-      "content" : "# 3. Документовед на 39 нод (отменено)\n\nDate: 2026-04-29\n\n## Status\n\nCancelled — superseded by [DEC-004](#4)\n\n## Context\n\nПервая итерация Документоведа собрана на 39 нод:\n- 3 триггера (IMAP + 2 Drive Trigger + Webhook)\n- 5-ступенчатый OCR-каскад (cloudflare-ai → Qwen3-VL → Qwen2.5-VL → Mistral)\n- 4 IF-ноды между ступенями\n- Code-нода с pdf-parse/mammoth (require!)\n- LLM Extract DeepSeek\n- Code валидация\n- IF \"не подписан\"\n- Switch по 5 типам документов\n- 5 отдельных Sheets\n\n## Decision\n\nПризнано переусложнением. Отменено.\n\n## Consequences\n\n**Что не так:**\n- 39 нод нереально дебажить через UI\n- Каскад из 5 OCR — преждевременная оптимизация (на MVP хватает одного)\n- Логика \"не подписан\" — это задача Контроллера, не Документоведа\n- 5 разных Sheets вместо одного с типом-колонкой — переусложнение\n\n**Урок:** на MVP не закладывать fallback'и до того, как появится статистика реальных ошибок.\n",
+      "content" : "# 3. Документовед на 39 нод (отменено)\n\nDate: 2026-04-29\n\n## Status\n\nCancelled — superseded by [DEC-004](#4)\n\n## Context\n\nПервая итерация Документоведа собрана на 39 нод:\n- 3 триггера (IMAP + 2 Drive Trigger + Webhook)\n- 5-ступенчатый OCR-каскад (cloudflare-ai → Qwen3-VL → Qwen2.5-VL → Mistral)\n- 4 IF-ноды между ступенями\n- Code-нода с pdf-parse/mammoth (require!)\n- LLM Extract DeepSeek\n- Code валидация\n- IF \"не подписан\"\n- Switch по 5 типам документов\n- 5 отдельных Sheets\n\n## Decision\n\nПризнано переусложнением. Отменено.\n\n## Consequences\n\n**Что не так:**\n- 39 нод нереально дебажить через UI\n- Каскад из 5 OCR — преждевременная оптимизация (на MVP хватает одного)\n- Логика \"не подписан\" — это задача Контроллера, не Документоведа\n- 5 разных Sheets вместо одного с типом-колонкой — переусложнение\n\n**Урок:** на MVP не закладывать fallback'и до того, как появится статистика реальных ошибок.\n\n**Реализационный артефакт (зафиксировано 09.05.2026 при сверке coo).** В БД N8N на coo сохранён workflow `Документовед` (id `2b0af1a8c92c424f`, 39 нод, active=0, last update 29.04.2026 01:04 UTC). Состав соответствует описанию выше: 5-ступенчатый OCR-каскад (pdf-parse/mammoth → cloudflare-ai → Qwen3-VL → Qwen 2.5 VL → Mistral OCR), DeepSeek V3 LLM Extract, IF \"не подписан\" с алертом через HTTP→Коллер, Switch по 5 типам с записью в 5 разных Sheets (Договоры, Счета, Акты, Выписки, Запросы). Workflow деактивирован при принятии DEC-004, но не удалён. Решение по дальнейшей судьбе артефакта — см. [DEC-006](#6).\n",
       "date" : "2026-04-28T21:00:00Z",
       "format" : "Markdown",
       "id" : "3",
@@ -32,22 +32,29 @@
       "status" : "Cancelled",
       "title" : "Документовед на 39 нод (отменено)"
     }, {
-      "content" : "# 4. Упрощение Документоведа до 12 нод\n\nDate: 2026-04-30\n\n## Status\n\nAccepted\n\n## Context\n\nПосле анализа Франкенштейна-1 (39 нод, см. DEC-003) решено упростить до минимально жизнеспособной версии.\n\n## Decision\n\n**Документовед = 12 нод:**\n\n1. Drive Trigger (от Полины) — единственный источник\n2. Drive: download\n3. HTTP Request → Qwen3-VL 235B (один OCR, без каскада)\n4. HTTP Request → DeepSeek V3 (LLM extract JSON)\n5. Code: валидация полей\n6. IF: распознали корректно?\n   - нет → Sheets \"Ошибки\" + Drive Move в \"Требует проверки\" + HTTP→Caller\n   - да →\n7. Switch: тип документа (5 веток)\n8. Sheets: Append Row\n9. Drive Move в Обработанные/<тип>\n\n## Consequences\n\n**Плюсы:**\n- В 3 раза проще, реально дебажится\n- Один OCR — одна точка отказа, понятная для логирования\n- Логика \"не подписан\" вынесена в Контроллер (как и должно быть)\n\n**Минусы:**\n- Один OCR без fallback — если Qwen упадёт, пайплайн встанет (приемлемо для MVP)\n- Drive Trigger от Полины как единственный источник — отвалился IMAP-канал от Таирова\n\n**Открытый вопрос:** как вернуть IMAP-канал? — решено в DEC-005.\n",
+      "content" : "# 4. Упрощение Документоведа до 12 нод\n\nDate: 2026-04-30\n\n## Status\n\nAccepted (decision) — Not implemented as of 09.05.2026\n\n## Context\n\nПосле анализа Франкенштейна-1 (39 нод, см. DEC-003) решено упростить до минимально жизнеспособной версии.\n\n## Decision\n\n**Документовед = 12 нод:**\n\n1. Drive Trigger (от Полины) — единственный источник\n2. Drive: download\n3. HTTP Request → Qwen3-VL 235B (один OCR, без каскада)\n4. HTTP Request → DeepSeek V3 (LLM extract JSON)\n5. Code: валидация полей\n6. IF: распознали корректно?\n   - нет → Sheets \"Ошибки\" + Drive Move в \"Требует проверки\" + HTTP→Caller\n   - да →\n7. Switch: тип документа (5 веток)\n8. Sheets: Append Row\n9. Drive Move в Обработанные/<тип>\n\n## Consequences\n\n**Плюсы:**\n- В 3 раза проще, реально дебажится\n- Один OCR — одна точка отказа, понятная для логирования\n- Логика \"не подписан\" вынесена в Контроллер (как и должно быть)\n\n**Минусы:**\n- Один OCR без fallback — если Qwen упадёт, пайплайн встанет (приемлемо для MVP)\n- Drive Trigger от Полины как единственный источник — отвалился IMAP-канал от Таирова\n\n**Открытый вопрос:** как вернуть IMAP-канал? — решено в DEC-005.\n\n**Статус реализации (зафиксировано 09.05.2026 при сверке coo).** В БД N8N на coo нет workflow, реализующего описанный 12-нодовый пайплайн. Документовед v2 как описан в этом ADR — не собран ни одной нодой. На coo существуют только:\n- Inactive `Документовед` (id `2b0af1a8c92c424f`, 39 нод) — реализация отменённого DEC-003.\n- Active `Полигон` (id `1632604d64e14e20`, 14 нод, last update 02.05.2026 23:36 UTC) — выполняет другую функцию: приём писем по IMAP с раскладкой вложений по папкам отправителей в Google Drive и логированием в Sheets. OCR / LLM Extract / Switch по типам в Полигоне отсутствуют.\n\nИстория Полигона: задумывался как чистый стенд, на который инкрементально добавлялись бы ноды до полного Документоведа. После инцидента в ночь со 02 на 03 мая 2026 (Полигон не видел писем в реальном времени, IMAP-нода N8N работала нестабильно) — направление развития сменилось на DEC-005 (вынесение приёма почты в отдельный микросервис). Полигон остался как полу-заглушка.\n\nРешение по дальнейшей реализации Документоведа v2 — см. [DEC-006](#6).\n",
       "date" : "2026-04-29T21:00:00Z",
       "format" : "Markdown",
       "id" : "4",
       "status" : "Accepted",
       "title" : "Упрощение Документоведа до 12 нод"
     }, {
-      "content" : "# 5. Mail-service как отдельный микросервис\n\nDate: 2026-05-02\n\n## Status\n\nAccepted\n\n## Context\n\nПосле DEC-002 IMAP-канал планировался через ноду N8N. После DEC-004 он временно убран. Нужно вернуть приём писем от Таирова, но N8N IMAP-нода имеет проблемы:\n\n- Глючит на больших вложениях (>5 MB)\n- mail.ru блокирует через час работы (timeout)\n- Нет контроля над парсингом MIME, attachments\n- Сложно дебажить — ноды живут в БД N8N\n\n## Decision\n\nИзвлечь IMAP-приём в **отдельный микросервис на Node.js**:\n\n- Имя: `mail-service`\n- Хост: `coo:8765`\n- Стек: Node.js + `imap-simple` библиотека\n- Функции: подключение к IMAP, парсинг писем, извлечение вложений, отдача по HTTP API\n- Документовед в N8N принимает данные через HTTP webhook от mail-service\n\n## Consequences\n\n**Плюсы:**\n- Полный контроль над IMAP-логикой (timeouts, retry, логирование)\n- Сервис можно перезапускать независимо от N8N\n- Дебаг через `docker logs` и стандартные Node.js инструменты\n- Открытый путь для замены N8N полностью на микросервисы (если зайдёт)\n- mail-service v1 успешно протестирован 02.05.2026 (5 писем с 01.05, парсинг ОК)\n\n**Минусы:**\n- Новый компонент — новая точка отказа\n- Нужно деплоить и мониторить\n- Контракт между mail-service и N8N — нужно поддерживать\n\n**Эволюция архитектуры:**\n- DEC-001: всё в N8N\n- DEC-002: + IMAP в N8N (отменено)\n- DEC-005: гибрид — IMAP в Node.js, OCR в N8N\n\n**Стратегический сигнал:** возможно полный переезд на Node.js в будущем (если N8N будет упираться в потолок).\n",
+      "content" : "# 5. Mail-service как отдельный микросервис\n\nDate: 2026-05-02\n\n## Status\n\nAccepted (decision) — Implementation paused at architecture fork\n\n## Context\n\nПосле DEC-002 IMAP-канал планировался через ноду N8N. После DEC-004 он временно убран. Нужно вернуть приём писем от Таирова, но N8N IMAP-нода имеет проблемы:\n\n- Глючит на больших вложениях (>5 MB)\n- mail.ru блокирует через час работы (timeout)\n- Нет контроля над парсингом MIME, attachments\n- Сложно дебажить — ноды живут в БД N8N\n\nДополнительно выявлено в ночь со 02 на 03 мая при работе с Полигоном (id `1632604d64e14e20`, 14 нод, IMAP+Drive+Sheets): нестабильность N8N IMAP-ноды, баг регистрации webhook после правок в БД ([n8n issue #16339](https://github.com/n8n-io/n8n/issues/16339)), потеря писем при переходе UNSEEN→SEEN. Полигон оставлен как полу-заглушка (см. DEC-006).\n\n## Decision\n\nИзвлечь IMAP-приём в **отдельный микросервис на Python/FastAPI**:\n\n- Имя: `mail-service`\n- Хост: `coo:8765` (`127.0.0.1:8765`, не на 0.0.0.0)\n- Стек: Python 3.10 + FastAPI + uvicorn + стандартный `imaplib`\n- Endpoint v1: `GET /mail/since/<YYYY-MM-DD>` — возвращает массив писем с полями `messageId`, `from`, `email`, `fio`, `subject`, `date` (ISO), `body_text` (≤5000 символов), `attachment_names[]`. Без скачивания вложений, без OCR, без саммари.\n- Документовед в N8N (или его замена в стеке `mail-stack/`) принимает данные через HTTP webhook от mail-service.\n\nИзначально предполагался Node.js + `imap-simple`. По итогам работы 03.05 выбран Python + `imaplib` — стабильнее, проще отладка через `curl`, не требует Node.js окружения отдельно от N8N.\n\n## Consequences\n\n**Плюсы:**\n- Полный контроль над IMAP-логикой (timeouts, retry, логирование)\n- Сервис можно перезапускать независимо от N8N\n- Дебаг через `journalctl` (если в systemd) или `docker logs` (если в Docker), плюс прямая проверка `curl http://127.0.0.1:8765/mail/since/...`\n- Открытый путь для замены N8N полностью на стек микросервисов (см. DEC-006)\n- Корректно парсит кириллицу, MIME-encoded заголовки, ФИО+email раздельно, имена вложений (включая русские)\n\n**Минусы:**\n- Новый компонент — новая точка отказа\n- Нужно деплоить и мониторить\n- Контракт между mail-service и потребителями нужно поддерживать\n- Парсер пропускает письма с ошибкой парсинга через `try/except + continue` без счётчика ошибок — упавшие письма не попадают в выдачу и об этом узнать нельзя без отдельного логирования. Замечание к v2.\n\n**Текущий статус реализации (на 09.05.2026).**\n\nv1 реализован 03.05.2026 на coo:\n- Путь: `/opt/mail-stack/mail-service/` (перенесено 09.05.2026 из `~/mail-stack/mail-service/` для производственной установки в стандартное место)\n- Состав: `server.py` (~6 КБ, ~250 строк) + Python venv с `fastapi`, `uvicorn`, `pydantic`, `starlette`, `anyio`, `h11`\n- Endpoints: `GET /health` → `{\"status\":\"ok\",\"service\":\"mail-service-v1\"}`, `GET /mail/since/<YYYY-MM-DD>`\n- Конфиг: hardcoded в `server.py` (IMAP host/port/user/pass) — замечание к v2 о вынесении в env\n\nEnd-to-end тест 03.05.2026 14:23 UTC: 5 писем за период 01.05–03.05 успешно распарсены — корректное MIME-декодирование кириллицы, отделение ФИО от email, ISO-даты, имена вложений (включая русские, в т.ч. от Контур.Экстерн, Google, Управления Делами, Таирова с 5 JPG).\n\nПовторный тест 09.05.2026 23:24 UTC: 6 писем за тот же период — `GET /health` отвечает, `GET /mail/since/2026-05-01` возвращает корректный JSON. Прямой IMAP-запрос мимо сервиса подтвердил счётчик: в `INBOX` за этот период действительно 6 писем (из 6462 всего в `INBOX`), остальное — в тематических папках mail.ru.\n\n**v1 НЕ оформлен в systemd-юнит** (для сравнения: Agent Caller оформлен — `/etc/systemd/system/agent-caller.service`, active с 27.04.2026). v1 НЕ запущен в продакшен-режиме, запускался только foreground-uvicorn для тестов.\n\n**Причина паузы — архитектурная развилка 03.05.2026 после успешного теста.** Решение «писать сразу docker-friendly код и сразу класть в Docker» обсуждалось, но не реализовано. Mail-service остался последним bare-metal сервисом перед запланированной докеризацией всего стека `mail-stack/`. Развилка зафиксирована в [DEC-006](#6), решение по форме развёртывания — отложено.\n\n**Эволюция архитектуры:**\n- DEC-001: всё в N8N\n- DEC-002: + IMAP в N8N (отменено)\n- DEC-005: гибрид — IMAP в Python-сервисе, OCR в N8N\n- DEC-006: реальный полный стек микросервисов как направление; форма развёртывания (Docker vs systemd) — pending\n\n**Стратегический сигнал:** возможен полный переезд на стек Python-микросервисов (mail / attachment / OCR / summary / classifier / state) при дальнейшем упоре в потолок N8N. Mail-service v1 — первый камень этого стека.\n",
       "date" : "2026-05-01T21:00:00Z",
       "format" : "Markdown",
       "id" : "5",
       "status" : "Accepted",
       "title" : "Mail-service как отдельный микросервис"
+    }, {
+      "content" : "# 6. Сверка архитектуры с реальностью на coo (09.05.2026)\n\nDate: 2026-05-09\n\n## Status\n\nAccepted\n\n## Context\n\nПри запуске нового чата 09.05.2026 для актуализации репозитория `ciriycpro/architect` обнаружены систематические расхождения между декларативными артефактами (DSL + ADR) и фактическим состоянием сервера coo. Артефакты разрабатывались в период 27.04.2026 – 02.05.2026 как декларативные решения; реализация частично отстала, частично пошла другим путём, частично остановлена на архитектурной развилке.\n\nЭтот ADR — снимок реальности на 09.05.2026 и фиксация принципов работы с N8N, выработанных в ходе инцидента 02–03.05.2026.\n\n## Фактическое состояние компонентов\n\n### Описанное в DSL (на момент сверки)\n\n| Компонент по DSL | Где живёт | Статус | Комментарий |\n|---|---|---|---|\n| `mailservice` (Node.js, coo:8765) | `/opt/mail-stack/mail-service/` (Python 3.10, FastAPI), запущен только foreground для тестов | **Working code, not in production** | См. [DEC-005](#5). Стек выбран Python вместо Node.js. v1 рабочий, отдаёт корректный JSON, не оформлен в systemd, не докеризован |\n| `documentoved` (N8N, 12 нод) | — | **Not implemented** | См. [DEC-004](#4). На бумаге. Ни одной ноды не собрано |\n| `controller` (N8N) | — | **Does not exist anywhere** | Нет ни как N8N workflow, ни как cron-задание, ни как самостоятельный сервис. Не реализован вообще |\n| `agentcaller` (Node.js, coo:3000) | `/home/iakshin77/agent-caller/server.js`, pid 26171, аптайм с 27.04.2026, systemd-юнит `agent-caller.service` | **Working in production** | Bare metal, без Docker, через systemd. Транспорт WhatsApp/Telegram/Email |\n\n### Не описанное в DSL — реальные артефакты в N8N\n\n| Workflow | id | Состав | Статус | Решение |\n|---|---|---|---|---|\n| `Полигон` | `1632604d64e14e20`, 14 нод, active=1, last 02.05.2026 | Schedule + Webhook + IMAP-приём + раскладка по папкам отправителей в Drive + лог в Sheets («Контакты», «Лог писем») | Работает нестабильно — часть писем теряется, часть пишется. Полу-заглушка | **Не трогать. Не чинить.** Дозревает / ждёт замены mail-service'ом |\n| `Документовед` | `2b0af1a8c92c424f`, 39 нод, active=0, last 29.04.2026 | Реализация отменённого DEC-003 (5-ступенчатый OCR-каскад, 5 разных Sheets, IF не подписан внутри Документоведа) | Артефакт DEC-003 | **Не удалять до запуска mail-service в прод.** После — дамп в `tairov/decisions/attachments/2b0af1a8-frankenstein.json` и удаление из БД |\n| `Telegram Photo to Google Drive` | `pvsSCtB0CCpZl50W`, 11 нод, active=1, last 27.04.2026 | Telegram-бот фотобудка (приём фото → Drive с раскладкой по папкам) | Вне-проектный, первая успешная сборка владельца в N8N | **Не относится к Compliance Helper.** В DSL Таирова не вносить. Может быть вынесен в отдельный workspace позже |\n\n## Decision\n\n### По существующим ADR\n- **DEC-003** — Status остаётся `Cancelled`. Дополнен раздел Consequences с описанием артефакта в БД (39 нод, id `2b0af1a8c92c424f`). Артефакт сохранён до выхода mail-service в продакшен.\n- **DEC-004** — Status изменён на `Accepted (decision) — Not implemented as of 09.05.2026`. В Consequences добавлен факт: в N8N нет ни одного workflow, реализующего описанный 12-нодовый пайплайн. Полигон выполняет другую функцию.\n- **DEC-005** — Status изменён на `Accepted (decision) — Implementation paused at architecture fork`. В Consequences зафиксировано: v1 реализован, протестирован, перенесён в `/opt/mail-stack/mail-service/`, но не оформлен в systemd и не докеризован. Причина — развилка по форме развёртывания.\n\n### По DSL и документации\n- **`tairov/workspace.dsl`** — переписывается под фактическое состояние. Добавляется контейнер `polygon` (active workflow в N8N). Контейнеры `documentoved` и `controller` сохраняются в DSL с пометкой в description «not implemented (planned)», чтобы DSL читался как карта замысла, но честно отражал реальность. См. сам DSL для деталей.\n- **`tairov/docs/01-overview.md`** — расширен от 4-строчной заглушки до Service Blueprint реальности на 09.05.2026 с явным разделением «Что работает» / «Что в работе» / «Что не реализовано».\n\n### Открытая развилка: форма развёртывания `mail-stack/`\n\nНа 03.05.2026 после успешного теста v1 рассматривались три варианта:\n\n1. **Чисто systemd по образцу Agent Caller.** Юнит `mail-service.service` в `/etc/systemd/system/`, запуск bare metal, доступ из N8N (в Docker) через `host.docker.internal:8765` или IP `docker0` bridge.\n2. **Сразу Docker через `docker-compose`.** Mail-service в собственном контейнере в сети `n8n_default`, доступ из N8N по hostname `http://mail-service:8765`. Подразумевает написание Dockerfile (~8 строк), `requirements.txt`, выноса конфига в env, listen на `0.0.0.0:8765` внутри контейнера.\n3. **Гибрид:** mail-service в systemd сейчас (быстрый старт), все следующие сервисы (`attachment-service`, `ocr-service`, `summary-service`, `classifier-service`, `state-service`) — сразу в Docker. Перенос mail-service в Docker — позже, когда стек окрепнет.\n\n**Решение по выбору варианта — отложено.** Эта работа сегодня — синхронизация документации, не проектирование. Развилка фиксируется как открытый вопрос. К решению вернуться в отдельной сессии после расстановки приоритетов.\n\n## Consequences\n\n**Плюсы:**\n- DSL и ADR начинают описывать реальность, а не желаемое. Любая новая сессия Claude или инженера получит честную картину за минуту чтения.\n- Решения остаются `Accepted` (DEC-004, DEC-005 не отменены), но честно маркированы статусом реализации.\n- Зафиксированы рабочие принципы N8N, выработанные кровью.\n- Зафиксирован факт существования mail-service v1 как working code — иначе через месяц можно было снова забыть, где он лежит.\n\n**Минусы:**\n- DSL временно «беднеет» в смысле визуализации — реальный рабочий контур состоит из Полигона (полу-заглушка) и Agent Caller. Mail-service есть, но не запущен. Документовед v2 и Контроллер только в плане. Это болезненно смотреть, но честно.\n- Архитектурная развилка по форме развёртывания не решена в этом ADR. Без решения нельзя двинуться дальше по `mail-stack/`. Решение требует отдельной сессии.\n- Полу-работающий Полигон в активе — риск молчаливой потери данных (часть писем пишется в Sheets, часть нет). Для production этого недостаточно.\n\n## Working principles for N8N (выстрадано в инциденте 02–03.05.2026)\n\nЭти принципы выработаны в ходе четырёхчасового марафона по починке Полигона. Должны соблюдаться при любой работе с N8N в этом проекте:\n\n1. **Один кирпич за раз.** Не собирать workflow из 14+ нод сразу. Добавлять по одной ноде, сохранять через UI, тестировать 5 ручных запусков, переходить к следующей. Полигон-Франкенштейн (39 нод, DEC-003) и Полигон v2 (14 нод, неработоспособен) — следствия нарушения этого правила.\n\n2. **Никаких SQL-патчей в БД N8N.** Только UI. Любое `UPDATE workflow_entity SET nodes=?` через прямую запись в `database.sqlite` ломает регистрацию webhook ([n8n issue #16339](https://github.com/n8n-io/n8n/issues/16339)) и портит экранирование expressions (markdown-рендер в чатах ломает `$json.email` → `$[json.email](http://json.email)`, и нода молча отдаёт пустую строку, что вызывает «Could not get parameter» далее по цепочке).\n\n3. **Sheets-ноды на старте — только `append`.** Никаких `appendOrUpdate` с `matchingColumns` пока поток данных не стабилен. Дедупликацию на старте делать на уровне источника или отдельной Code-нодой по `messageId`.\n\n4. **Code-ноды простые.** Каждая делает ОДНУ трансформацию. Никаких 200-строчных pipeline-ов в одной Code — выносить в Python-микросервис в `mail-stack/`.\n\n5. **Всё, что в N8N сложнее одной IF-ноды — выносить в Python-сервис.** N8N — оркестратор, не процессор. Парсинг MIME, OCR, классификация, дедупликация, поиск отправителя — это работа Python-сервисов. N8N делает только: триггер → HTTP вызов → Sheets append → HTTP вызов → Telegram message.\n\n6. **Перед каждым новым кирпичом — экспорт текущего workflow в JSON.** Чтобы откатиться, если новый кирпич сломал.\n\n7. **IMAP-нода N8N — нестабильна.** Использовать только в качестве временной заглушки. Production-канал — собственный `mail-service`.\n\n## Open questions\n\n- **Форма развёртывания `mail-stack/`** (см. раздел «Открытая развилка» выше). Требует отдельного решения.\n- **Когда удалять inactive `Документовед` (39 нод).** Привязано к выходу mail-service в прод.\n- **Нужен ли Контроллер как отдельный N8N workflow или как Python-сервис.** Логика «Schedule + сверка по ИНН → проблемы no_contract / draft_only / expired → HTTP→Caller». В DSL он есть, в реальности — нет.\n- **Что делать с Полигоном.** Вариант (а) — чинить и довести до рабочего состояния. Вариант (б) — оставить как есть, ждать замены mail-service'ом. Вариант (в) — деактивировать (active=0) до завершения mail-stack. Текущий выбор владельца — (б).\n",
+      "date" : "2026-05-08T21:00:00Z",
+      "format" : "Markdown",
+      "id" : "6",
+      "status" : "Accepted",
+      "title" : "Сверка архитектуры с реальностью на coo (09.05.2026)"
     } ],
     "sections" : [ {
-      "content" : "# Tairov Compliance Helper\n\nАвтоматизация документооборота ИП Таирова.\n\n## Компоненты\n- mail-service (Node.js, coo:8765)\n- N8N Документовед\n- N8N Контроллер  \n- Agent Caller\n",
+      "content" : "# Tairov Compliance Helper\n\nАвтоматизация документооборота ИП Таирова на сервере coo: приём документов по email/Drive → распознавание → запись в реестр Google Sheets → алерты по 3 типам проблем (отсутствие договора, только драфт, просрочка) в Telegram/WhatsApp/Email.\n\n## Service Blueprint реальности (на 09.05.2026)\n\n### Что работает в продакшене\n\n- **Agent Caller** (`/home/iakshin77/agent-caller/`, Node.js, systemd, coo:3000). Транспорт алертов в три канала: Telegram (бот @CallerBaby666Bot), WhatsApp (whatsapp-web.js, аккаунт `+79266143959`), Email (SMTP). Аптайм с 27.04.2026 непрерывно.\n\n### Что работает в режиме полу-заглушки\n\n- **Polygon** (N8N workflow id `1632604d64e14e20`, 14 нод, active=1). Принимает письма по IMAP с ящика `5458508@mail.ru`, раскладывает вложения по папкам отправителей в Google Drive, ведёт два листа в Sheets: «Контакты» и «Лог писем». Работает нестабильно — часть писем теряется в IMAP-ноде N8N, часть пишется в Sheets, часть нет. Не предназначен для production-нагрузки. Ждёт замены mail-service'ом.\n\n### Что есть как working code, но не в продакшене\n\n- **mail-service v1** (`/opt/mail-stack/mail-service/`, Python 3.10 + FastAPI). Endpoint `GET /mail/since/<YYYY-MM-DD>` отдаёт массив писем с корректным парсингом MIME, кириллицы, ФИО, ISO-дат, имён вложений. Без скачивания вложений, без OCR, без саммари. Реализован 03.05.2026, успешно протестирован end-to-end. На 09.05.2026 не оформлен в systemd, не докеризован, запускается только foreground для проверок. Решение по форме развёртывания — открытая развилка (см. DEC-006).\n\n### Что описано в плане, но не реализовано\n\n- **N8N Документовед v2** (12 нод по DEC-004). OCR+LLM extract+Switch по 5 типам документов. Не собрано ни одной ноды.\n- **N8N Контроллер**. Schedule + сверка по ИНН → проблемы no_contract / draft_only / expired → триггер Caller. Не существует ни в каком виде — ни workflow в N8N, ни cron-задание, ни самостоятельный сервис.\n- **Стек микросервисов `mail-stack/`** в полном объёме: `attachment-service` (скачивание вложений по messageId+filename), `ocr-service` (PDF/DOCX/JPG → текст через pdfplumber/mammoth/Tesseract или Cloudflare AI), `summary-service` (LLM-саммари через OpenRouter), `classifier-service` (тип документа), `state-service` (SQLite, дедупликация по messageId).\n\n### Артефакты в БД, не используются\n\n- **Inactive `Документовед`** (id `2b0af1a8c92c424f`, 39 нод, active=0). Реализация отменённого DEC-003 (5-ступенчатый OCR-каскад, 5 разных Sheets, IF не подписан внутри). Сохранён до выхода mail-service в прод, затем дамп и удаление.\n\n### Вне-проектные артефакты\n\n- **`Telegram Photo to Google Drive`** (N8N workflow id `pvsSCtB0CCpZl50W`, 11 нод, active=1). Telegram-бот фотобудка. Первая успешная сборка владельца в N8N (27.04.2026). К Compliance Helper не относится. Может быть вынесен в отдельный workspace.\n\n## Внешние системы\n\n- **mail.ru SMTP/IMAP** — почтовый сервер `5458508@mail.ru`, основной канал входящих документов от Таирова и контрагентов.\n- **Google Workspace** — Drive (файловое хранилище, папка `1reHuOVUYwz4OfoX80xzr4nk2kfZ9x1lL` для документов Таирова) + Sheets (реестр, файл `база_документов_таиров`, id `13SMWzIiwDVRc1eYKJcGm1a-R__7Hbc1hvChTXvZhfsg`).\n- **OpenRouter API** — LLM провайдер для OCR (Qwen3-VL) и извлечения структурированных полей (DeepSeek V3) — будет использоваться при реализации Документоведа v2.\n- **Telegram + WhatsApp + Email** — каналы доставки алертов.\n\n## Ключевые архитектурные решения\n\nСм. полный список в `decisions/`. Краткая сводка:\n\n- [DEC-001](../decisions/0001-n8n-platform.md): N8N как платформа разработки агентов. Accepted.\n- [DEC-002](../decisions/0002-imap-trigger.md): IMAP-триггер на 5458508@mail.ru. Superseded by DEC-005.\n- [DEC-003](../decisions/0003-39-nodes-cancelled.md): Документовед на 39 нод. Cancelled, реализационный артефакт сохранён в БД.\n- [DEC-004](../decisions/0004-simplify-to-12-nodes.md): Упрощение Документоведа до 12 нод. Accepted, не реализовано.\n- [DEC-005](../decisions/0005-microservices.md): Mail-service как отдельный микросервис. Accepted, реализация на паузе на архитектурной развилке.\n- [DEC-006](../decisions/0006-reality-check-09052026.md): Сверка с реальностью на 09.05.2026 + working principles N8N + открытая развилка по форме развёртывания `mail-stack/`.\n\n## Контакты для оперативной работы\n\nДля деталей по credentials, токенам, API-ключам, путям на coo, паролям — см. персональную память владельца, не репозиторий. Этот репозиторий публичный.\n",
       "filename" : "01-overview.md",
       "format" : "Markdown",
       "order" : 1,
@@ -55,7 +62,7 @@
     } ]
   },
   "id" : 1,
-  "lastModifiedDate" : "2026-05-08T21:13:41Z",
+  "lastModifiedDate" : "2026-05-09T00:19:31Z",
   "model" : {
     "people" : [ {
       "description" : "Клиент. Получает алерты, отвечает на письма с документами.",
@@ -68,7 +75,7 @@
       "relationships" : [ {
         "description" : "Отвечает на письма с документами",
         "destinationId" : "3",
-        "id" : "18",
+        "id" : "19",
         "sourceId" : "1",
         "tags" : "Relationship",
         "technology" : "SMTP"
@@ -85,7 +92,7 @@
       "relationships" : [ {
         "description" : "Просматривает реестр и файлы",
         "destinationId" : "4",
-        "id" : "20",
+        "id" : "21",
         "sourceId" : "2",
         "tags" : "Relationship",
         "technology" : "Web"
@@ -102,18 +109,25 @@
         "structurizr.dsl.identifier" : "mailru"
       },
       "relationships" : [ {
-        "description" : "Входящие письма с вложениями",
-        "destinationId" : "8",
-        "id" : "22",
+        "description" : "Входящие письма с вложениями (planned: replace polygon)",
+        "destinationId" : "10",
+        "id" : "23",
         "sourceId" : "3",
         "tags" : "Relationship",
         "technology" : "IMAP"
       }, {
-        "description" : "Входящие письма с вложениями",
+        "description" : "Входящие письма с вложениями (planned: replace polygon)",
         "destinationId" : "7",
-        "id" : "23",
-        "linkedRelationshipId" : "22",
+        "id" : "24",
+        "linkedRelationshipId" : "23",
         "sourceId" : "3",
+        "technology" : "IMAP"
+      }, {
+        "description" : "Входящие письма (current temporary path)",
+        "destinationId" : "9",
+        "id" : "25",
+        "sourceId" : "3",
+        "tags" : "Relationship",
         "technology" : "IMAP"
       } ],
       "tags" : "Element,Software System,External"
@@ -149,37 +163,73 @@
       "tags" : "Element,Software System,External"
     }, {
       "containers" : [ {
-        "description" : "Node.js, coo:8765",
+        "description" : "Node.js, coo:3000, systemd",
         "documentation" : { },
         "id" : "8",
+        "name" : "Agent Caller",
+        "properties" : {
+          "structurizr.dsl.identifier" : "agentcaller"
+        },
+        "relationships" : [ {
+          "description" : "Отправляет в каналы (current)",
+          "destinationId" : "6",
+          "id" : "33",
+          "sourceId" : "8",
+          "tags" : "Relationship",
+          "technology" : "API"
+        } ],
+        "tags" : "Element,Container",
+        "technology" : "[РАБОТАЕТ В ПРОД] Транспорт алертов: Telegram + WhatsApp + Email. Аптайм с 27.04.2026"
+      }, {
+        "description" : "N8N workflow id 1632604d64e14e20",
+        "documentation" : { },
+        "id" : "9",
+        "name" : "Polygon (Полигон)",
+        "properties" : {
+          "structurizr.dsl.identifier" : "polygon"
+        },
+        "relationships" : [ {
+          "description" : "Кладёт письма и логи в Drive/Sheets (current)",
+          "destinationId" : "4",
+          "id" : "27",
+          "sourceId" : "9",
+          "tags" : "Relationship",
+          "technology" : "API"
+        } ],
+        "tags" : "Element,Container",
+        "technology" : "[ПОЛУ-ЗАГЛУШКА] Schedule+Webhook+IMAP→Drive раскладка по отправителям + Sheets лог. Работает нестабильно — часть писем теряется. Ждёт замены mail-service'ом"
+      }, {
+        "description" : "Python 3.10 + FastAPI, /opt/mail-stack/mail-service/",
+        "documentation" : { },
+        "id" : "10",
         "name" : "Mail Service",
         "properties" : {
           "structurizr.dsl.identifier" : "mailservice"
         },
         "relationships" : [ {
-          "description" : "Передаёт parsed JSON + binary",
-          "destinationId" : "9",
-          "id" : "24",
-          "sourceId" : "8",
+          "description" : "Передаёт parsed JSON + binary (planned)",
+          "destinationId" : "11",
+          "id" : "26",
+          "sourceId" : "10",
           "tags" : "Relationship",
           "technology" : "HTTP POST"
         } ],
         "tags" : "Element,Container",
-        "technology" : "IMAP-слушатель: парсит письма от Таирова, отдаёт по HTTP"
+        "technology" : "[WORKING CODE / NOT IN PROD] coo:8765. Endpoints /health и /mail/since/<YYYY-MM-DD>. v1 успешно отдаёт письма, не оформлен в systemd, не докеризован. Развилка по форме развёртывания — DEC-006"
       }, {
         "components" : [ {
           "description" : "HTTP→Qwen3-VL",
           "documentation" : { },
-          "id" : "10",
-          "name" : "OCR Step",
+          "id" : "12",
+          "name" : "OCR Step (planned)",
           "properties" : {
             "structurizr.dsl.identifier" : "ocr"
           },
           "relationships" : [ {
             "description" : "Передаёт Markdown",
-            "destinationId" : "11",
-            "id" : "31",
-            "sourceId" : "10",
+            "destinationId" : "13",
+            "id" : "34",
+            "sourceId" : "12",
             "tags" : "Relationship"
           } ],
           "tags" : "Element,Component",
@@ -187,16 +237,16 @@
         }, {
           "description" : "HTTP→DeepSeek V3",
           "documentation" : { },
-          "id" : "11",
-          "name" : "LLM Extract",
+          "id" : "13",
+          "name" : "LLM Extract (planned)",
           "properties" : {
             "structurizr.dsl.identifier" : "extract"
           },
           "relationships" : [ {
             "description" : "Передаёт JSON",
-            "destinationId" : "12",
-            "id" : "32",
-            "sourceId" : "11",
+            "destinationId" : "14",
+            "id" : "35",
+            "sourceId" : "13",
             "tags" : "Relationship"
           } ],
           "tags" : "Element,Component",
@@ -204,16 +254,16 @@
         }, {
           "description" : "Code-нода",
           "documentation" : { },
-          "id" : "12",
-          "name" : "Validate",
+          "id" : "14",
+          "name" : "Validate (planned)",
           "properties" : {
             "structurizr.dsl.identifier" : "validate"
           },
           "relationships" : [ {
             "description" : "Отвалидированные поля",
-            "destinationId" : "13",
-            "id" : "33",
-            "sourceId" : "12",
+            "destinationId" : "15",
+            "id" : "36",
+            "sourceId" : "14",
             "tags" : "Relationship"
           } ],
           "tags" : "Element,Component",
@@ -221,22 +271,22 @@
         }, {
           "description" : "Switch-нода",
           "documentation" : { },
-          "id" : "13",
-          "name" : "Type Switch",
+          "id" : "15",
+          "name" : "Type Switch (planned)",
           "properties" : {
             "structurizr.dsl.identifier" : "router"
           },
           "relationships" : [ {
             "description" : "Тип определён",
-            "destinationId" : "14",
-            "id" : "34",
-            "sourceId" : "13",
+            "destinationId" : "16",
+            "id" : "37",
+            "sourceId" : "15",
             "tags" : "Relationship"
           }, {
             "description" : "Тип определён",
-            "destinationId" : "15",
-            "id" : "35",
-            "sourceId" : "13",
+            "destinationId" : "17",
+            "id" : "38",
+            "sourceId" : "15",
             "tags" : "Relationship"
           } ],
           "tags" : "Element,Component",
@@ -244,8 +294,8 @@
         }, {
           "description" : "Google Sheets→Append Row",
           "documentation" : { },
-          "id" : "14",
-          "name" : "Sheets Writer",
+          "id" : "16",
+          "name" : "Sheets Writer (planned)",
           "properties" : {
             "structurizr.dsl.identifier" : "sheets_writer"
           },
@@ -254,81 +304,63 @@
         }, {
           "description" : "Google Drive→Move",
           "documentation" : { },
-          "id" : "15",
-          "name" : "Drive Mover",
+          "id" : "17",
+          "name" : "Drive Mover (planned)",
           "properties" : {
             "structurizr.dsl.identifier" : "drive_mover"
           },
           "tags" : "Element,Component",
           "technology" : "Перекладывание файла в Обработанные/<тип>"
         } ],
-        "description" : "N8N workflow 'Полигон'",
+        "description" : "N8N workflow, 12 нод",
         "documentation" : { },
-        "id" : "9",
-        "name" : "N8N Документовед",
+        "id" : "11",
+        "name" : "N8N Документовед v2 (planned)",
         "properties" : {
           "structurizr.dsl.identifier" : "documentoved"
         },
         "relationships" : [ {
-          "description" : "OCR + LLM extract",
+          "description" : "OCR + LLM extract (planned)",
           "destinationId" : "5",
-          "id" : "25",
-          "sourceId" : "9",
+          "id" : "28",
+          "sourceId" : "11",
           "tags" : "Relationship",
           "technology" : "HTTPS"
         }, {
-          "description" : "Файлы → Drive, поля → Sheets",
+          "description" : "Файлы → Drive, поля → Sheets (planned)",
           "destinationId" : "4",
-          "id" : "27",
-          "sourceId" : "9",
+          "id" : "30",
+          "sourceId" : "11",
           "tags" : "Relationship",
           "technology" : "API"
         } ],
         "tags" : "Element,Container",
-        "technology" : "OCR + извлечение полей + запись в Sheets"
+        "technology" : "[NOT IMPLEMENTED] План DEC-004: OCR + извлечение полей + запись в Sheets. На 09.05.2026 нет ни одной ноды. В БД N8N лежит inactive Документовед-Франкенштейн (DEC-003, 39 нод) — артефакт, не используется"
       }, {
-        "description" : "N8N workflow",
+        "description" : "N8N workflow или Python-сервис",
         "documentation" : { },
-        "id" : "16",
-        "name" : "N8N Контроллер",
+        "id" : "18",
+        "name" : "N8N Контроллер (planned)",
         "properties" : {
           "structurizr.dsl.identifier" : "controller"
         },
         "relationships" : [ {
-          "description" : "Читает Sheets, ищет проблемы",
+          "description" : "Читает Sheets, ищет проблемы (planned)",
           "destinationId" : "4",
-          "id" : "28",
-          "sourceId" : "16",
+          "id" : "31",
+          "sourceId" : "18",
           "tags" : "Relationship",
           "technology" : "API"
         }, {
-          "description" : "Триггерит алерт",
-          "destinationId" : "17",
-          "id" : "29",
-          "sourceId" : "16",
+          "description" : "Триггерит алерт (planned)",
+          "destinationId" : "8",
+          "id" : "32",
+          "sourceId" : "18",
           "tags" : "Relationship",
           "technology" : "HTTP POST"
         } ],
         "tags" : "Element,Container",
-        "technology" : "Schedule + сверка по ИНН: ищет проблемы no_contract / draft_only / expired"
-      }, {
-        "description" : "Node.js, coo:3000",
-        "documentation" : { },
-        "id" : "17",
-        "name" : "Agent Caller",
-        "properties" : {
-          "structurizr.dsl.identifier" : "agentcaller"
-        },
-        "relationships" : [ {
-          "description" : "Отправляет в каналы",
-          "destinationId" : "6",
-          "id" : "30",
-          "sourceId" : "17",
-          "tags" : "Relationship",
-          "technology" : "API"
-        } ],
-        "tags" : "Element,Container",
-        "technology" : "Транспорт алертов: Telegram + WhatsApp + Email"
+        "technology" : "[NOT IMPLEMENTED] Schedule + сверка по ИНН: ищет проблемы no_contract / draft_only / expired. На 09.05.2026 не существует ни в каком виде — ни workflow в N8N, ни cron-задание, ни сервис"
       } ],
       "description" : "Контур автоматической сверки документооборота на coo.gcp",
       "documentation" : { },
@@ -341,22 +373,22 @@
       "relationships" : [ {
         "description" : "Шлёт алерты Таирову и Артёму",
         "destinationId" : "6",
-        "id" : "19",
+        "id" : "20",
         "sourceId" : "7",
         "tags" : "Relationship",
         "technology" : "API"
       }, {
         "description" : "Хранит файлы и реестр",
         "destinationId" : "4",
-        "id" : "21",
+        "id" : "22",
         "sourceId" : "7",
         "tags" : "Relationship",
         "technology" : "API"
       }, {
-        "description" : "OCR + LLM extract",
+        "description" : "OCR + LLM extract (planned)",
         "destinationId" : "5",
-        "id" : "26",
-        "linkedRelationshipId" : "25",
+        "id" : "29",
+        "linkedRelationshipId" : "28",
         "sourceId" : "7",
         "technology" : "HTTPS"
       } ],
@@ -365,7 +397,7 @@
   },
   "name" : "Tairov Compliance Helper",
   "properties" : {
-    "structurizr.dsl" : "d29ya3NwYWNlICJUYWlyb3YgQ29tcGxpYW5jZSBIZWxwZXIiICLQkNCy0YLQvtC80LDRgtC40LfQsNGG0LjRjyDQtNC+0LrRg9C80LXQvdGC0L7QvtCx0L7RgNC+0YLQsCDQmNCfINCi0LDQuNGA0L7QstCwIOKAlCDRgdCy0LXRgNC60LAg0LTQvtCz0L7QstC+0YDQvtCyL9GB0YfQtdGC0L7Qsi/QsNC60YLQvtCyLCDQsNC70LXRgNGC0Ysg0L/QviAzINGC0LjQv9Cw0Lwg0L/RgNC+0LHQu9C10LwiIHsKCiAgICAhZG9jcyAuL2RvY3MKICAgICFhZHJzIC4vZGVjaXNpb25zCgogICAgbW9kZWwgewogICAgICAgICMg0JDQutGC0L7RgNGLCiAgICAgICAgdGFpcm92ID0gcGVyc29uICLQmNCfINCi0LDQuNGA0L7QsiIgItCa0LvQuNC10L3Rgi4g0J/QvtC70YPRh9Cw0LXRgiDQsNC70LXRgNGC0YssINC+0YLQstC10YfQsNC10YIg0L3QsCDQv9C40YHRjNC80LAg0YEg0LTQvtC60YPQvNC10L3RgtCw0LzQuC4iCiAgICAgICAgYXJ0ZW0gPSBwZXJzb24gItCv0LrRiNC40L0g0JDRgNGC0ZHQvCIgItCe0L/QtdGA0LDRgtC+0YAg0YHQuNGB0YLQtdC80YsuINCf0L7Qu9GD0YfQsNC10YIg0LDQu9C10YDRgtGLLCDQtNC10LHQsNC20LjRgiwg0L7QsdC90L7QstC70Y/QtdGCINGA0LXQtdGB0YLRgC4iCgogICAgICAgICMg0JLQvdC10YjQvdC40LUg0YHQuNGB0YLQtdC80YsKICAgICAgICBtYWlscnUgPSBzb2Z0d2FyZVN5c3RlbSAibWFpbC5ydSBTTVRQL0lNQVAiICLQn9C+0YfRgtC+0LLRi9C5INGB0LXRgNCy0LXRgCA1NDU4NTA4QG1haWwucnUiICJFeHRlcm5hbCIKICAgICAgICBnb29nbGUgPSBzb2Z0d2FyZVN5c3RlbSAiR29vZ2xlIFdvcmtzcGFjZSIgIkRyaXZlICjRhdGA0LDQvdC40LvQuNGJ0LUg0YTQsNC50LvQvtCyKSArIFNoZWV0cyAo0YDQtdC10YHRgtGAINC00L7QutGD0LzQtdC90YLQvtCyKSIgIkV4dGVybmFsIgogICAgICAgIG9wZW5yb3V0ZXIgPSBzb2Z0d2FyZVN5c3RlbSAiT3BlblJvdXRlciBBUEkiICJRd2VuMy1WTCAoT0NSKSwgRGVlcFNlZWsgVjMgKExMTSBleHRyYWN0KSIgIkV4dGVybmFsIgogICAgICAgIG1lc3NlbmdlcnMgPSBzb2Z0d2FyZVN5c3RlbSAiVGVsZWdyYW0gKyBXaGF0c0FwcCArIEVtYWlsIiAi0JrQsNC90LDQu9GLINC00L7RgdGC0LDQstC60Lgg0LDQu9C10YDRgtC+0LIiICJFeHRlcm5hbCIKCiAgICAgICAgIyDQk9C70LDQstC90LDRjyDRgdC40YHRgtC10LzQsAogICAgICAgIGNvbXBsaWFuY2UgPSBzb2Z0d2FyZVN5c3RlbSAiQ29tcGxpYW5jZSBIZWxwZXIiICLQmtC+0L3RgtGD0YAg0LDQstGC0L7QvNCw0YLQuNGH0LXRgdC60L7QuSDRgdCy0LXRgNC60Lgg0LTQvtC60YPQvNC10L3RgtC+0L7QsdC+0YDQvtGC0LAg0L3QsCBjb28uZ2NwIiB7CiAgICAgICAgICAgIG1haWxzZXJ2aWNlID0gY29udGFpbmVyICJNYWlsIFNlcnZpY2UiICJOb2RlLmpzLCBjb286ODc2NSIgIklNQVAt0YHQu9GD0YjQsNGC0LXQu9GMOiDQv9Cw0YDRgdC40YIg0L/QuNGB0YzQvNCwINC+0YIg0KLQsNC40YDQvtCy0LAsINC+0YLQtNCw0ZHRgiDQv9C+IEhUVFAiIAogICAgICAgICAgICAKICAgICAgICAgICAgZG9jdW1lbnRvdmVkID0gY29udGFpbmVyICJOOE4g0JTQvtC60YPQvNC10L3RgtC+0LLQtdC0IiAiTjhOIHdvcmtmbG93ICfQn9C+0LvQuNCz0L7QvSciICJPQ1IgKyDQuNC30LLQu9C10YfQtdC90LjQtSDQv9C+0LvQtdC5ICsg0LfQsNC/0LjRgdGMINCyIFNoZWV0cyIgewogICAgICAgICAgICAgICAgb2NyID0gY29tcG9uZW50ICJPQ1IgU3RlcCIgIkhUVFDihpJRd2VuMy1WTCIgItCY0LfQstC70LXQutCw0LXRgiDRgtC10LrRgdGCINC40LcgUERGL0pQRyDQsiBNYXJrZG93biIKICAgICAgICAgICAgICAgIGV4dHJhY3QgPSBjb21wb25lbnQgIkxMTSBFeHRyYWN0IiAiSFRUUOKGkkRlZXBTZWVrIFYzIiAi0JjQt9Cy0LvQtdC60LDQtdGCINGB0YLRgNGD0LrRgtGD0YDQuNGA0L7QstCw0L3QvdGL0LUg0L/QvtC70Y8gKNGC0LjQvywg0LrQvtC90YLRgNCw0LPQtdC90YIsINCY0J3QnSwg0YHRg9C80LzQsCwg0LTQsNGC0LApIgogICAgICAgICAgICAgICAgdmFsaWRhdGUgPSBjb21wb25lbnQgIlZhbGlkYXRlIiAiQ29kZS3QvdC+0LTQsCIgItCf0YDQvtCy0LXRgNC60LAg0LrQvtGA0YDQtdC60YLQvdC+0YHRgtC4INC/0L7Qu9C10LkiCiAgICAgICAgICAgICAgICByb3V0ZXIgPSBjb21wb25lbnQgIlR5cGUgU3dpdGNoIiAiU3dpdGNoLdC90L7QtNCwIiAi0KDQsNGB0LrQu9Cw0LTQutCwINC/0L4gNSDRgtC40L/QsNC8OiDQtNC+0LPQvtCy0L7RgC/RgdGH0ZHRgi/QsNC60YIv0LLRi9C/0LjRgdC60LAv0L/RgNC+0YfQtdC1IgogICAgICAgICAgICAgICAgc2hlZXRzX3dyaXRlciA9IGNvbXBvbmVudCAiU2hlZXRzIFdyaXRlciIgIkdvb2dsZSBTaGVldHPihpJBcHBlbmQgUm93IiAi0JfQsNC/0LjRgdGMINCyINC90YPQttC90YvQuSDQu9C40YHRgiDRgNC10LXRgdGC0YDQsCIKICAgICAgICAgICAgICAgIGRyaXZlX21vdmVyID0gY29tcG9uZW50ICJEcml2ZSBNb3ZlciIgIkdvb2dsZSBEcml2ZeKGkk1vdmUiICLQn9C10YDQtdC60LvQsNC00YvQstCw0L3QuNC1INGE0LDQudC70LAg0LIg0J7QsdGA0LDQsdC+0YLQsNC90L3Ri9C1LzzRgtC40L8+IgogICAgICAgICAgICB9CiAgICAgICAgICAgIAogICAgICAgICAgICBjb250cm9sbGVyID0gY29udGFpbmVyICJOOE4g0JrQvtC90YLRgNC+0LvQu9C10YAiICJOOE4gd29ya2Zsb3ciICJTY2hlZHVsZSArINGB0LLQtdGA0LrQsCDQv9C+INCY0J3QnTog0LjRidC10YIg0L/RgNC+0LHQu9C10LzRiyBub19jb250cmFjdCAvIGRyYWZ0X29ubHkgLyBleHBpcmVkIgogICAgICAgICAgICAKICAgICAgICAgICAgYWdlbnRjYWxsZXIgPSBjb250YWluZXIgIkFnZW50IENhbGxlciIgIk5vZGUuanMsIGNvbzozMDAwIiAi0KLRgNCw0L3RgdC/0L7RgNGCINCw0LvQtdGA0YLQvtCyOiBUZWxlZ3JhbSArIFdoYXRzQXBwICsgRW1haWwiCiAgICAgICAgfQoKICAgICAgICAjINCh0LLRj9C30LggKENvbnRleHQg0YPRgNC+0LLQtdC90YwpCiAgICAgICAgdGFpcm92IC0+IG1haWxydSAi0J7RgtCy0LXRh9Cw0LXRgiDQvdCwINC/0LjRgdGM0LzQsCDRgSDQtNC+0LrRg9C80LXQvdGC0LDQvNC4IiAiU01UUCIKICAgICAgICBjb21wbGlhbmNlIC0+IG1lc3NlbmdlcnMgItCo0LvRkdGCINCw0LvQtdGA0YLRiyDQotCw0LjRgNC+0LLRgyDQuCDQkNGA0YLRkdC80YMiICJBUEkiCiAgICAgICAgYXJ0ZW0gLT4gZ29vZ2xlICLQn9GA0L7RgdC80LDRgtGA0LjQstCw0LXRgiDRgNC10LXRgdGC0YAg0Lgg0YTQsNC50LvRiyIgIldlYiIKICAgICAgICBjb21wbGlhbmNlIC0+IGdvb2dsZSAi0KXRgNCw0L3QuNGCINGE0LDQudC70Ysg0Lgg0YDQtdC10YHRgtGAIiAiQVBJIgoKICAgICAgICAjINCh0LLRj9C30LggKENvbnRhaW5lciDRg9GA0L7QstC10L3RjCkKICAgICAgICBtYWlscnUgLT4gbWFpbHNlcnZpY2UgItCS0YXQvtC00Y/RidC40LUg0L/QuNGB0YzQvNCwINGBINCy0LvQvtC20LXQvdC40Y/QvNC4IiAiSU1BUCIKICAgICAgICBtYWlsc2VydmljZSAtPiBkb2N1bWVudG92ZWQgItCf0LXRgNC10LTQsNGR0YIgcGFyc2VkIEpTT04gKyBiaW5hcnkiICJIVFRQIFBPU1QiCiAgICAgICAgZG9jdW1lbnRvdmVkIC0+IG9wZW5yb3V0ZXIgIk9DUiArIExMTSBleHRyYWN0IiAiSFRUUFMiCiAgICAgICAgZG9jdW1lbnRvdmVkIC0+IGdvb2dsZSAi0KTQsNC50LvRiyDihpIgRHJpdmUsINC/0L7Qu9GPIOKGkiBTaGVldHMiICJBUEkiCiAgICAgICAgY29udHJvbGxlciAtPiBnb29nbGUgItCn0LjRgtCw0LXRgiBTaGVldHMsINC40YnQtdGCINC/0YDQvtCx0LvQtdC80YsiICJBUEkiCiAgICAgICAgY29udHJvbGxlciAtPiBhZ2VudGNhbGxlciAi0KLRgNC40LPQs9C10YDQuNGCINCw0LvQtdGA0YIiICJIVFRQIFBPU1QiCiAgICAgICAgYWdlbnRjYWxsZXIgLT4gbWVzc2VuZ2VycyAi0J7RgtC/0YDQsNCy0LvRj9C10YIg0LIg0LrQsNC90LDQu9GLIiAiQVBJIgoKICAgICAgICAjINCh0LLRj9C30LggKENvbXBvbmVudCDRg9GA0L7QstC10L3RjCDQstC90YPRgtGA0Lgg0JTQvtC60YPQvNC10L3RgtC+0LLQtdC00LApCiAgICAgICAgb2NyIC0+IGV4dHJhY3QgItCf0LXRgNC10LTQsNGR0YIgTWFya2Rvd24iCiAgICAgICAgZXh0cmFjdCAtPiB2YWxpZGF0ZSAi0J/QtdGA0LXQtNCw0ZHRgiBKU09OIgogICAgICAgIHZhbGlkYXRlIC0+IHJvdXRlciAi0J7RgtCy0LDQu9C40LTQuNGA0L7QstCw0L3QvdGL0LUg0L/QvtC70Y8iCiAgICAgICAgcm91dGVyIC0+IHNoZWV0c193cml0ZXIgItCi0LjQvyDQvtC/0YDQtdC00LXQu9GR0L0iCiAgICAgICAgcm91dGVyIC0+IGRyaXZlX21vdmVyICLQotC40L8g0L7Qv9GA0LXQtNC10LvRkdC9IgogICAgfQoKICAgIHZpZXdzIHsKICAgICAgICBzeXN0ZW1Db250ZXh0IGNvbXBsaWFuY2UgIlN5c3RlbUNvbnRleHQiICJDb21wbGlhbmNlIEhlbHBlciDigJQg0LrQvtC90YLQtdC60YHRgiIgewogICAgICAgICAgICBpbmNsdWRlICoKICAgICAgICAgICAgYXV0b2xheW91dCBscgogICAgICAgIH0KCiAgICAgICAgY29udGFpbmVyIGNvbXBsaWFuY2UgIkNvbnRhaW5lcnMiICJDb21wbGlhbmNlIEhlbHBlciDigJQg0LrQvtC90YLQtdC50L3QtdGA0YsiIHsKICAgICAgICAgICAgaW5jbHVkZSAqCiAgICAgICAgICAgIGF1dG9sYXlvdXQgdGIKICAgICAgICB9CgogICAgICAgIGNvbXBvbmVudCBkb2N1bWVudG92ZWQgIkRvY3VtZW50b3ZlZENvbXBvbmVudHMiICLQlNC+0LrRg9C80LXQvdGC0L7QstC10LQg4oCUINCy0L3Rg9GC0YDQtdC90L3QuNC1INC60L7QvNC/0L7QvdC10L3RgtGLIiB7CiAgICAgICAgICAgIGluY2x1ZGUgKgogICAgICAgICAgICBhdXRvbGF5b3V0IGxyCiAgICAgICAgfQoKICAgICAgICBzdHlsZXMgewogICAgICAgICAgICBlbGVtZW50ICJQZXJzb24iIHsKICAgICAgICAgICAgICAgIHNoYXBlIFBlcnNvbgogICAgICAgICAgICAgICAgYmFja2dyb3VuZCAjMDg0MjdCCiAgICAgICAgICAgICAgICBjb2xvciAjZmZmZmZmCiAgICAgICAgICAgIH0KICAgICAgICAgICAgZWxlbWVudCAiRXh0ZXJuYWwiIHsKICAgICAgICAgICAgICAgIGJhY2tncm91bmQgIzk5OTk5OQogICAgICAgICAgICAgICAgY29sb3IgI2ZmZmZmZgogICAgICAgICAgICB9CiAgICAgICAgICAgIGVsZW1lbnQgIlNvZnR3YXJlIFN5c3RlbSIgewogICAgICAgICAgICAgICAgYmFja2dyb3VuZCAjMTE2OEJECiAgICAgICAgICAgICAgICBjb2xvciAjZmZmZmZmCiAgICAgICAgICAgIH0KICAgICAgICAgICAgZWxlbWVudCAiQ29udGFpbmVyIiB7CiAgICAgICAgICAgICAgICBiYWNrZ3JvdW5kICM0MzhERDUKICAgICAgICAgICAgICAgIGNvbG9yICNmZmZmZmYKICAgICAgICAgICAgfQogICAgICAgICAgICBlbGVtZW50ICJDb21wb25lbnQiIHsKICAgICAgICAgICAgICAgIGJhY2tncm91bmQgIzg1QkJGMAogICAgICAgICAgICAgICAgY29sb3IgIzAwMDAwMAogICAgICAgICAgICB9CiAgICAgICAgfQoKICAgICAgICB0aGVtZSBkZWZhdWx0CiAgICB9Cn0="
+    "structurizr.dsl" : "d29ya3NwYWNlICJUYWlyb3YgQ29tcGxpYW5jZSBIZWxwZXIiICLQkNCy0YLQvtC80LDRgtC40LfQsNGG0LjRjyDQtNC+0LrRg9C80LXQvdGC0L7QvtCx0L7RgNC+0YLQsCDQmNCfINCi0LDQuNGA0L7QstCwIOKAlCDRgdCy0LXRgNC60LAg0LTQvtCz0L7QstC+0YDQvtCyL9GB0YfQtdGC0L7Qsi/QsNC60YLQvtCyLCDQsNC70LXRgNGC0Ysg0L/QviAzINGC0LjQv9Cw0Lwg0L/RgNC+0LHQu9C10LwiIHsKCiAgICAhZG9jcyAuL2RvY3MKICAgICFhZHJzIC4vZGVjaXNpb25zCgogICAgbW9kZWwgewogICAgICAgICMg0JDQutGC0L7RgNGLCiAgICAgICAgdGFpcm92ID0gcGVyc29uICLQmNCfINCi0LDQuNGA0L7QsiIgItCa0LvQuNC10L3Rgi4g0J/QvtC70YPRh9Cw0LXRgiDQsNC70LXRgNGC0YssINC+0YLQstC10YfQsNC10YIg0L3QsCDQv9C40YHRjNC80LAg0YEg0LTQvtC60YPQvNC10L3RgtCw0LzQuC4iCiAgICAgICAgYXJ0ZW0gPSBwZXJzb24gItCv0LrRiNC40L0g0JDRgNGC0ZHQvCIgItCe0L/QtdGA0LDRgtC+0YAg0YHQuNGB0YLQtdC80YsuINCf0L7Qu9GD0YfQsNC10YIg0LDQu9C10YDRgtGLLCDQtNC10LHQsNC20LjRgiwg0L7QsdC90L7QstC70Y/QtdGCINGA0LXQtdGB0YLRgC4iCgogICAgICAgICMg0JLQvdC10YjQvdC40LUg0YHQuNGB0YLQtdC80YsKICAgICAgICBtYWlscnUgPSBzb2Z0d2FyZVN5c3RlbSAibWFpbC5ydSBTTVRQL0lNQVAiICLQn9C+0YfRgtC+0LLRi9C5INGB0LXRgNCy0LXRgCA1NDU4NTA4QG1haWwucnUiICJFeHRlcm5hbCIKICAgICAgICBnb29nbGUgPSBzb2Z0d2FyZVN5c3RlbSAiR29vZ2xlIFdvcmtzcGFjZSIgIkRyaXZlICjRhdGA0LDQvdC40LvQuNGJ0LUg0YTQsNC50LvQvtCyKSArIFNoZWV0cyAo0YDQtdC10YHRgtGAINC00L7QutGD0LzQtdC90YLQvtCyKSIgIkV4dGVybmFsIgogICAgICAgIG9wZW5yb3V0ZXIgPSBzb2Z0d2FyZVN5c3RlbSAiT3BlblJvdXRlciBBUEkiICJRd2VuMy1WTCAoT0NSKSwgRGVlcFNlZWsgVjMgKExMTSBleHRyYWN0KSIgIkV4dGVybmFsIgogICAgICAgIG1lc3NlbmdlcnMgPSBzb2Z0d2FyZVN5c3RlbSAiVGVsZWdyYW0gKyBXaGF0c0FwcCArIEVtYWlsIiAi0JrQsNC90LDQu9GLINC00L7RgdGC0LDQstC60Lgg0LDQu9C10YDRgtC+0LIiICJFeHRlcm5hbCIKCiAgICAgICAgIyDQk9C70LDQstC90LDRjyDRgdC40YHRgtC10LzQsAogICAgICAgIGNvbXBsaWFuY2UgPSBzb2Z0d2FyZVN5c3RlbSAiQ29tcGxpYW5jZSBIZWxwZXIiICLQmtC+0L3RgtGD0YAg0LDQstGC0L7QvNCw0YLQuNGH0LXRgdC60L7QuSDRgdCy0LXRgNC60Lgg0LTQvtC60YPQvNC10L3RgtC+0L7QsdC+0YDQvtGC0LAg0L3QsCBjb28uZ2NwIiB7CgogICAgICAgICAgICAjID09PSDQoNC10LDQu9GM0L3QviDRgNCw0LHQvtGC0LDRjtGJ0LjQtSDQutC+0LzQv9C+0L3QtdC90YLRiyDQvdCwIDA5LjA1LjIwMjYgPT09CgogICAgICAgICAgICBhZ2VudGNhbGxlciA9IGNvbnRhaW5lciAiQWdlbnQgQ2FsbGVyIiAiTm9kZS5qcywgY29vOjMwMDAsIHN5c3RlbWQiICJb0KDQkNCR0J7QotCQ0JXQoiDQkiDQn9Cg0J7QlF0g0KLRgNCw0L3RgdC/0L7RgNGCINCw0LvQtdGA0YLQvtCyOiBUZWxlZ3JhbSArIFdoYXRzQXBwICsgRW1haWwuINCQ0L/RgtCw0LnQvCDRgSAyNy4wNC4yMDI2IgoKICAgICAgICAgICAgcG9seWdvbiA9IGNvbnRhaW5lciAiUG9seWdvbiAo0J/QvtC70LjQs9C+0L0pIiAiTjhOIHdvcmtmbG93IGlkIDE2MzI2MDRkNjRlMTRlMjAiICJb0J/QntCb0KMt0JfQkNCT0JvQo9Co0JrQkF0gU2NoZWR1bGUrV2ViaG9vaytJTUFQ4oaSRHJpdmUg0YDQsNGB0LrQu9Cw0LTQutCwINC/0L4g0L7RgtC/0YDQsNCy0LjRgtC10LvRj9C8ICsgU2hlZXRzINC70L7Qsy4g0KDQsNCx0L7RgtCw0LXRgiDQvdC10YHRgtCw0LHQuNC70YzQvdC+IOKAlCDRh9Cw0YHRgtGMINC/0LjRgdC10Lwg0YLQtdGA0Y/QtdGC0YHRjy4g0JbQtNGR0YIg0LfQsNC80LXQvdGLIG1haWwtc2VydmljZSfQvtC8IgoKICAgICAgICAgICAgIyA9PT0gV29ya2luZyBjb2RlLCDQvdC1INC30LDQv9GD0YnQtdC9INCyINC/0YDQvtC0ID09PQoKICAgICAgICAgICAgbWFpbHNlcnZpY2UgPSBjb250YWluZXIgIk1haWwgU2VydmljZSIgIlB5dGhvbiAzLjEwICsgRmFzdEFQSSwgL29wdC9tYWlsLXN0YWNrL21haWwtc2VydmljZS8iICJbV09SS0lORyBDT0RFIC8gTk9UIElOIFBST0RdIGNvbzo4NzY1LiBFbmRwb2ludHMgL2hlYWx0aCDQuCAvbWFpbC9zaW5jZS88WVlZWS1NTS1ERD4uIHYxINGD0YHQv9C10YjQvdC+INC+0YLQtNCw0ZHRgiDQv9C40YHRjNC80LAsINC90LUg0L7RhNC+0YDQvNC70LXQvSDQsiBzeXN0ZW1kLCDQvdC1INC00L7QutC10YDQuNC30L7QstCw0L0uINCg0LDQt9Cy0LjQu9C60LAg0L/QviDRhNC+0YDQvNC1INGA0LDQt9Cy0ZHRgNGC0YvQstCw0L3QuNGPIOKAlCBERUMtMDA2IgoKICAgICAgICAgICAgIyA9PT0g0J7Qv9C40YHQsNC90L4g0LIg0L/Qu9Cw0L3QtSwg0L3QtSDRgNC10LDQu9C40LfQvtCy0LDQvdC+ID09PQoKICAgICAgICAgICAgZG9jdW1lbnRvdmVkID0gY29udGFpbmVyICJOOE4g0JTQvtC60YPQvNC10L3RgtC+0LLQtdC0IHYyIChwbGFubmVkKSIgIk44TiB3b3JrZmxvdywgMTIg0L3QvtC0IiAiW05PVCBJTVBMRU1FTlRFRF0g0J/Qu9Cw0L0gREVDLTAwNDogT0NSICsg0LjQt9Cy0LvQtdGH0LXQvdC40LUg0L/QvtC70LXQuSArINC30LDQv9C40YHRjCDQsiBTaGVldHMuINCd0LAgMDkuMDUuMjAyNiDQvdC10YIg0L3QuCDQvtC00L3QvtC5INC90L7QtNGLLiDQkiDQkdCUIE44TiDQu9C10LbQuNGCIGluYWN0aXZlINCU0L7QutGD0LzQtdC90YLQvtCy0LXQtC3QpNGA0LDQvdC60LXQvdGI0YLQtdC50L0gKERFQy0wMDMsIDM5INC90L7QtCkg4oCUINCw0YDRgtC10YTQsNC60YIsINC90LUg0LjRgdC/0L7Qu9GM0LfRg9C10YLRgdGPIiB7CiAgICAgICAgICAgICAgICBvY3IgPSBjb21wb25lbnQgIk9DUiBTdGVwIChwbGFubmVkKSIgIkhUVFDihpJRd2VuMy1WTCIgItCY0LfQstC70LXQutCw0LXRgiDRgtC10LrRgdGCINC40LcgUERGL0pQRyDQsiBNYXJrZG93biIKICAgICAgICAgICAgICAgIGV4dHJhY3QgPSBjb21wb25lbnQgIkxMTSBFeHRyYWN0IChwbGFubmVkKSIgIkhUVFDihpJEZWVwU2VlayBWMyIgItCY0LfQstC70LXQutCw0LXRgiDRgdGC0YDRg9C60YLRg9GA0LjRgNC+0LLQsNC90L3Ri9C1INC/0L7Qu9GPICjRgtC40L8sINC60L7QvdGC0YDQsNCz0LXQvdGCLCDQmNCd0J0sINGB0YPQvNC80LAsINC00LDRgtCwKSIKICAgICAgICAgICAgICAgIHZhbGlkYXRlID0gY29tcG9uZW50ICJWYWxpZGF0ZSAocGxhbm5lZCkiICJDb2RlLdC90L7QtNCwIiAi0J/RgNC+0LLQtdGA0LrQsCDQutC+0YDRgNC10LrRgtC90L7RgdGC0Lgg0L/QvtC70LXQuSIKICAgICAgICAgICAgICAgIHJvdXRlciA9IGNvbXBvbmVudCAiVHlwZSBTd2l0Y2ggKHBsYW5uZWQpIiAiU3dpdGNoLdC90L7QtNCwIiAi0KDQsNGB0LrQu9Cw0LTQutCwINC/0L4gNSDRgtC40L/QsNC8OiDQtNC+0LPQvtCy0L7RgC/RgdGH0ZHRgi/QsNC60YIv0LLRi9C/0LjRgdC60LAv0L/RgNC+0YfQtdC1IgogICAgICAgICAgICAgICAgc2hlZXRzX3dyaXRlciA9IGNvbXBvbmVudCAiU2hlZXRzIFdyaXRlciAocGxhbm5lZCkiICJHb29nbGUgU2hlZXRz4oaSQXBwZW5kIFJvdyIgItCX0LDQv9C40YHRjCDQsiDQvdGD0LbQvdGL0Lkg0LvQuNGB0YIg0YDQtdC10YHRgtGA0LAiCiAgICAgICAgICAgICAgICBkcml2ZV9tb3ZlciA9IGNvbXBvbmVudCAiRHJpdmUgTW92ZXIgKHBsYW5uZWQpIiAiR29vZ2xlIERyaXZl4oaSTW92ZSIgItCf0LXRgNC10LrQu9Cw0LTRi9Cy0LDQvdC40LUg0YTQsNC50LvQsCDQsiDQntCx0YDQsNCx0L7RgtCw0L3QvdGL0LUvPNGC0LjQvz4iCiAgICAgICAgICAgIH0KCiAgICAgICAgICAgIGNvbnRyb2xsZXIgPSBjb250YWluZXIgIk44TiDQmtC+0L3RgtGA0L7Qu9C70LXRgCAocGxhbm5lZCkiICJOOE4gd29ya2Zsb3cg0LjQu9C4IFB5dGhvbi3RgdC10YDQstC40YEiICJbTk9UIElNUExFTUVOVEVEXSBTY2hlZHVsZSArINGB0LLQtdGA0LrQsCDQv9C+INCY0J3QnTog0LjRidC10YIg0L/RgNC+0LHQu9C10LzRiyBub19jb250cmFjdCAvIGRyYWZ0X29ubHkgLyBleHBpcmVkLiDQndCwIDA5LjA1LjIwMjYg0L3QtSDRgdGD0YnQtdGB0YLQstGD0LXRgiDQvdC4INCyINC60LDQutC+0Lwg0LLQuNC00LUg4oCUINC90Lggd29ya2Zsb3cg0LIgTjhOLCDQvdC4IGNyb24t0LfQsNC00LDQvdC40LUsINC90Lgg0YHQtdGA0LLQuNGBIgogICAgICAgIH0KCiAgICAgICAgIyDQodCy0Y/Qt9C4IChDb250ZXh0INGD0YDQvtCy0LXQvdGMKQogICAgICAgIHRhaXJvdiAtPiBtYWlscnUgItCe0YLQstC10YfQsNC10YIg0L3QsCDQv9C40YHRjNC80LAg0YEg0LTQvtC60YPQvNC10L3RgtCw0LzQuCIgIlNNVFAiCiAgICAgICAgY29tcGxpYW5jZSAtPiBtZXNzZW5nZXJzICLQqNC70ZHRgiDQsNC70LXRgNGC0Ysg0KLQsNC40YDQvtCy0YMg0Lgg0JDRgNGC0ZHQvNGDIiAiQVBJIgogICAgICAgIGFydGVtIC0+IGdvb2dsZSAi0J/RgNC+0YHQvNCw0YLRgNC40LLQsNC10YIg0YDQtdC10YHRgtGAINC4INGE0LDQudC70YsiICJXZWIiCiAgICAgICAgY29tcGxpYW5jZSAtPiBnb29nbGUgItCl0YDQsNC90LjRgiDRhNCw0LnQu9GLINC4INGA0LXQtdGB0YLRgCIgIkFQSSIKCiAgICAgICAgIyDQodCy0Y/Qt9C4IChDb250YWluZXIg0YPRgNC+0LLQtdC90YwpIOKAlCDQvtGC0YDQsNC20LDRjtGCINC30LDQvNGL0YHQtdC7OyDRgNC10LDQu9GM0L3QviDRgNCw0LHQvtGC0LDRjtGCINGC0L7Qu9GM0LrQviBhZ2VudGNhbGxlcuKGkm1lc3NlbmdlcnMg0LggcG9seWdvbi3RhtC10L/QvtGH0LrQsAogICAgICAgIG1haWxydSAtPiBtYWlsc2VydmljZSAi0JLRhdC+0LTRj9GJ0LjQtSDQv9C40YHRjNC80LAg0YEg0LLQu9C+0LbQtdC90LjRj9C80LggKHBsYW5uZWQ6IHJlcGxhY2UgcG9seWdvbikiICJJTUFQIgogICAgICAgIG1haWxydSAtPiBwb2x5Z29uICLQktGF0L7QtNGP0YnQuNC1INC/0LjRgdGM0LzQsCAoY3VycmVudCB0ZW1wb3JhcnkgcGF0aCkiICJJTUFQIgogICAgICAgIG1haWxzZXJ2aWNlIC0+IGRvY3VtZW50b3ZlZCAi0J/QtdGA0LXQtNCw0ZHRgiBwYXJzZWQgSlNPTiArIGJpbmFyeSAocGxhbm5lZCkiICJIVFRQIFBPU1QiCiAgICAgICAgcG9seWdvbiAtPiBnb29nbGUgItCa0LvQsNC00ZHRgiDQv9C40YHRjNC80LAg0Lgg0LvQvtCz0Lgg0LIgRHJpdmUvU2hlZXRzIChjdXJyZW50KSIgIkFQSSIKICAgICAgICBkb2N1bWVudG92ZWQgLT4gb3BlbnJvdXRlciAiT0NSICsgTExNIGV4dHJhY3QgKHBsYW5uZWQpIiAiSFRUUFMiCiAgICAgICAgZG9jdW1lbnRvdmVkIC0+IGdvb2dsZSAi0KTQsNC50LvRiyDihpIgRHJpdmUsINC/0L7Qu9GPIOKGkiBTaGVldHMgKHBsYW5uZWQpIiAiQVBJIgogICAgICAgIGNvbnRyb2xsZXIgLT4gZ29vZ2xlICLQp9C40YLQsNC10YIgU2hlZXRzLCDQuNGJ0LXRgiDQv9GA0L7QsdC70LXQvNGLIChwbGFubmVkKSIgIkFQSSIKICAgICAgICBjb250cm9sbGVyIC0+IGFnZW50Y2FsbGVyICLQotGA0LjQs9Cz0LXRgNC40YIg0LDQu9C10YDRgiAocGxhbm5lZCkiICJIVFRQIFBPU1QiCiAgICAgICAgYWdlbnRjYWxsZXIgLT4gbWVzc2VuZ2VycyAi0J7RgtC/0YDQsNCy0LvRj9C10YIg0LIg0LrQsNC90LDQu9GLIChjdXJyZW50KSIgIkFQSSIKCiAgICAgICAgIyDQodCy0Y/Qt9C4IChDb21wb25lbnQg0YPRgNC+0LLQtdC90Ywg0LLQvdGD0YLRgNC4INCU0L7QutGD0LzQtdC90YLQvtCy0LXQtNCwIOKAlCDQstGB0LUgcGxhbm5lZCkKICAgICAgICBvY3IgLT4gZXh0cmFjdCAi0J/QtdGA0LXQtNCw0ZHRgiBNYXJrZG93biIKICAgICAgICBleHRyYWN0IC0+IHZhbGlkYXRlICLQn9C10YDQtdC00LDRkdGCIEpTT04iCiAgICAgICAgdmFsaWRhdGUgLT4gcm91dGVyICLQntGC0LLQsNC70LjQtNC40YDQvtCy0LDQvdC90YvQtSDQv9C+0LvRjyIKICAgICAgICByb3V0ZXIgLT4gc2hlZXRzX3dyaXRlciAi0KLQuNC/INC+0L/RgNC10LTQtdC70ZHQvSIKICAgICAgICByb3V0ZXIgLT4gZHJpdmVfbW92ZXIgItCi0LjQvyDQvtC/0YDQtdC00LXQu9GR0L0iCiAgICB9CgogICAgdmlld3MgewogICAgICAgIHN5c3RlbUNvbnRleHQgY29tcGxpYW5jZSAiU3lzdGVtQ29udGV4dCIgIkNvbXBsaWFuY2UgSGVscGVyIOKAlCDQutC+0L3RgtC10LrRgdGCIiB7CiAgICAgICAgICAgIGluY2x1ZGUgKgogICAgICAgICAgICBhdXRvbGF5b3V0IGxyCiAgICAgICAgfQoKICAgICAgICBjb250YWluZXIgY29tcGxpYW5jZSAiQ29udGFpbmVycyIgIkNvbXBsaWFuY2UgSGVscGVyIOKAlCDQutC+0L3RgtC10LnQvdC10YDRiyAoY3VycmVudCBzdGF0ZSAwOS4wNS4yMDI2KSIgewogICAgICAgICAgICBpbmNsdWRlICoKICAgICAgICAgICAgYXV0b2xheW91dCB0YgogICAgICAgIH0KCiAgICAgICAgY29tcG9uZW50IGRvY3VtZW50b3ZlZCAiRG9jdW1lbnRvdmVkQ29tcG9uZW50cyIgItCU0L7QutGD0LzQtdC90YLQvtCy0LXQtCDigJQg0LLQvdGD0YLRgNC10L3QvdC40LUg0LrQvtC80L/QvtC90LXQvdGC0YsgKHBsYW5uZWQsIG5vdCBpbXBsZW1lbnRlZCkiIHsKICAgICAgICAgICAgaW5jbHVkZSAqCiAgICAgICAgICAgIGF1dG9sYXlvdXQgbHIKICAgICAgICB9CgogICAgICAgIHN0eWxlcyB7CiAgICAgICAgICAgIGVsZW1lbnQgIlBlcnNvbiIgewogICAgICAgICAgICAgICAgc2hhcGUgUGVyc29uCiAgICAgICAgICAgICAgICBiYWNrZ3JvdW5kICMwODQyN0IKICAgICAgICAgICAgICAgIGNvbG9yICNmZmZmZmYKICAgICAgICAgICAgfQogICAgICAgICAgICBlbGVtZW50ICJFeHRlcm5hbCIgewogICAgICAgICAgICAgICAgYmFja2dyb3VuZCAjOTk5OTk5CiAgICAgICAgICAgICAgICBjb2xvciAjZmZmZmZmCiAgICAgICAgICAgIH0KICAgICAgICAgICAgZWxlbWVudCAiU29mdHdhcmUgU3lzdGVtIiB7CiAgICAgICAgICAgICAgICBiYWNrZ3JvdW5kICMxMTY4QkQKICAgICAgICAgICAgICAgIGNvbG9yICNmZmZmZmYKICAgICAgICAgICAgfQogICAgICAgICAgICBlbGVtZW50ICJDb250YWluZXIiIHsKICAgICAgICAgICAgICAgIGJhY2tncm91bmQgIzQzOERENQogICAgICAgICAgICAgICAgY29sb3IgI2ZmZmZmZgogICAgICAgICAgICB9CiAgICAgICAgICAgIGVsZW1lbnQgIkNvbXBvbmVudCIgewogICAgICAgICAgICAgICAgYmFja2dyb3VuZCAjODVCQkYwCiAgICAgICAgICAgICAgICBjb2xvciAjMDAwMDAwCiAgICAgICAgICAgIH0KICAgICAgICB9CgogICAgICAgIHRoZW1lIGRlZmF1bHQKICAgIH0KfQ=="
   },
   "views" : {
     "componentViews" : [ {
@@ -378,17 +410,9 @@
         "rankSeparation" : 300,
         "vertices" : false
       },
-      "containerId" : "9",
-      "description" : "Документовед — внутренние компоненты",
+      "containerId" : "11",
+      "description" : "Документовед — внутренние компоненты (planned, not implemented)",
       "elements" : [ {
-        "id" : "10",
-        "x" : 0,
-        "y" : 0
-      }, {
-        "id" : "11",
-        "x" : 0,
-        "y" : 0
-      }, {
         "id" : "12",
         "x" : 0,
         "y" : 0
@@ -404,25 +428,33 @@
         "id" : "15",
         "x" : 0,
         "y" : 0
+      }, {
+        "id" : "16",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "17",
+        "x" : 0,
+        "y" : 0
       } ],
       "externalContainerBoundariesVisible" : false,
       "key" : "DocumentovedComponents",
       "order" : 3,
       "relationships" : [ {
-        "id" : "31"
-      }, {
-        "id" : "32"
-      }, {
-        "id" : "33"
-      }, {
         "id" : "34"
       }, {
         "id" : "35"
+      }, {
+        "id" : "36"
+      }, {
+        "id" : "37"
+      }, {
+        "id" : "38"
       } ]
     } ],
     "configuration" : {
       "branding" : { },
-      "lastSavedView" : "Containers",
+      "lastSavedView" : "DocumentovedComponents",
       "styles" : {
         "elements" : [ {
           "background" : "#08427b",
@@ -460,7 +492,7 @@
         "rankSeparation" : 300,
         "vertices" : false
       },
-      "description" : "Compliance Helper — контейнеры",
+      "description" : "Compliance Helper — контейнеры (current state 09.05.2026)",
       "elements" : [ {
         "id" : "3",
         "x" : 0,
@@ -486,11 +518,15 @@
         "x" : 0,
         "y" : 0
       }, {
-        "id" : "16",
+        "id" : "10",
         "x" : 0,
         "y" : 0
       }, {
-        "id" : "17",
+        "id" : "11",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "18",
         "x" : 0,
         "y" : 0
       } ],
@@ -498,19 +534,23 @@
       "key" : "Containers",
       "order" : 2,
       "relationships" : [ {
-        "id" : "22"
-      }, {
-        "id" : "24"
+        "id" : "23"
       }, {
         "id" : "25"
+      }, {
+        "id" : "26"
       }, {
         "id" : "27"
       }, {
         "id" : "28"
       }, {
-        "id" : "29"
-      }, {
         "id" : "30"
+      }, {
+        "id" : "31"
+      }, {
+        "id" : "32"
+      }, {
+        "id" : "33"
       } ],
       "softwareSystemId" : "7"
     } ],
@@ -550,13 +590,13 @@
       "key" : "SystemContext",
       "order" : 1,
       "relationships" : [ {
-        "id" : "19"
+        "id" : "20"
       }, {
-        "id" : "21"
+        "id" : "22"
       }, {
-        "id" : "23"
+        "id" : "24"
       }, {
-        "id" : "26"
+        "id" : "29"
       } ],
       "softwareSystemId" : "7"
     } ]
