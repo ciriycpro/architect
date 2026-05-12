@@ -18,7 +18,7 @@
 
 Стек микросервисов `mail-stack/` — горизонтальная архитектура взамен монолитного Документоведа v2:
 
-- **attachment-service** ([DEC-008](../decisions/0008-parser-stack.md)) — скачивание вложений по messageId+filename. ~50 строк FastAPI. coo:8766. По шаблону mail-service.
+- **attachment-service** ([DEC-011](../decisions/0011-attachment-service.md)) — скачивание вложений по messageId+filename из IMAP. Возврат пути к файлу на диске в `/var/lib/mail-stack/attachments/<messageId>/<filename>`. Кэш через файловую систему (idempotent), TTL 7 дней, hard limit 25 МБ. coo:8766. По шаблону mail-service.
 - **parser-service** ([DEC-008](../decisions/0008-parser-stack.md)) — детерминированный роутер по MIME + библиотечный стек L1-L14 (pdf-inspector, PyMuPDF, pdfplumber, mammoth, openpyxl, xlrd, python-pptx, beautifulsoup4) + LLM-vision fallback (Qwen3-VL primary, Qwen 2.5 VL fallback). coo:8767.
 - **summary-service** ([DEC-009](../decisions/0009-summary-haiku.md)) — текстовое саммари массива писем через Claude Haiku 4.5 (через OpenRouter), fallback DeepSeek V3. coo:8768.
 - **N8N Email Digest v1** ([DEC-010](../decisions/0010-n8n-email-digest-v1.md)) — оркестратор полной цепочки. Triggers: Schedule 09:00 MSK + Webhook /digest-now. Доставка результата в Google Sheets («Дайджест») + Telegram Таирову.
@@ -60,6 +60,7 @@
 - [DEC-008](../decisions/0008-parser-stack.md): Parser-service — библиотечный стек L1-L14 + LLM-vision Qwen-каскад. Accepted, реализация в плане.
 - [DEC-009](../decisions/0009-summary-haiku.md): Summary-service на Claude Haiku 4.5. Accepted, реализация в плане.
 - [DEC-010](../decisions/0010-n8n-email-digest-v1.md): N8N workflow Email Digest v1 — оркестратор полной цепочки mail-stack. Accepted, реализация в плане.
+- [DEC-011](../decisions/0011-attachment-service.md): Attachment-service — контракт возврата пути к файлу + кэш через FS + TTL 7 дней + лимит 25 МБ. Accepted, реализация в плане.
 
 ## Контакты для оперативной работы
 

@@ -29,7 +29,7 @@ workspace "Tairov Compliance Helper" "Автоматизация докумен�
 
             # === Планируется к реализации в составе mail-stack (DEC-008, DEC-009, DEC-010) ===
 
-            attachmentservice = container "Attachment Service (planned)" "Python 3.11 + FastAPI + systemd" "[PLANNED — DEC-008] coo:8766. Endpoint /download — скачивание вложения по messageId+filename. ~50 строк кода"
+            attachmentservice = container "Attachment Service (planned)" "Python 3.11 + FastAPI + systemd" "[PLANNED — DEC-011] coo:8766. Endpoint POST /download — скачивание вложения по messageId+filename. Возвращает путь к файлу в /var/lib/mail-stack/attachments/<messageId>/<filename>. Кэш через файловую систему (idempotent). TTL 7 дней, cleanup-cron. Hard limit 25 МБ. ~150 строк кода"
 
             parserservice = container "Parser Service (planned)" "Python 3.11 + FastAPI + systemd, библиотеки L1-L14" "[PLANNED — DEC-008] coo:8767. Endpoint /parse — детерминированный роутер по MIME + per-page роутинг внутри PDF. Локальные библиотеки (pdf-inspector, PyMuPDF, pdfplumber, mammoth, openpyxl, xlrd, python-pptx, beautifulsoup4) + LLM-vision fallback (Qwen3-VL primary, Qwen 2.5 VL fallback). RAM ~80 МБ idle, ~260 МБ peak"
 
