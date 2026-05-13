@@ -66,6 +66,8 @@
 - [DEC-009](../decisions/0009-summary-haiku.md): Summary-service на Claude Haiku 4.5 + DeepSeek-chat fallback. **Implemented 13.05.2026**, в production через systemd, RAM 30.6 МБ. Промпт v2 с живым разговорным тоном (best practices индустрии). Smoke-тест прошёл на реальных данных Таирова.
 - [DEC-010](../decisions/0010-n8n-email-digest-v1.md): N8N workflow Email Digest v1 — оркестратор полной цепочки mail-stack. Accepted, реализация в плане.
 - [DEC-011](../decisions/0011-attachment-service.md): Attachment-service — контракт возврата пути к файлу + кэш через FS + TTL 7 дней + лимит 25 МБ. **Implemented 12.05.2026**, в production через systemd, RAM 28 МБ.
+- [DEC-016](../decisions/0016-kubernetes-manifests.md): Kubernetes-friendly deployment manifests как production-grade артефакты. Accepted, реализация после DEC-014 (оркестратор). 17 файлов YAML, тестируются на minikube. Включает все принципы DEC-017 Уровень 0 (runAsNonRoot, NetworkPolicy, resource limits, Secrets API).
+- [DEC-017](../decisions/0017-secure-by-design.md): Secure by Design roadmap по 4 уровням. Accepted, реализация поэтапно. Уровень 0 (input validation, rate limit, CORS) — встраивается в каждый новый кирпич начиная с DEC-014. Уровни 1-3 — на горизонте недель. Перед вторым клиентом — обязательно весь Уровень 3 (152-ФЗ compliance, PenTest, threat model).
 
 ## Контакты для оперативной работы
 
