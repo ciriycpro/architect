@@ -26,9 +26,16 @@
 
 ### Что описано в плане, под реализацию следующими сессиями
 
-Стек микросервисов `mail-stack/` — горизонтальная архитектура взамен монолитного Документоведа v2 — **полностью реализован на v1.0**. Дальнейшее развитие:
+Стек микросервисов `mail-stack/` — горизонтальная архитектура взамен монолитного Документоведа v2 — **полностью реализован на v1.0 и v1.1**.
 
-- **Orchestrator v1.1** — Telegram-кнопка «Проверить почту» в @CallerBaby666Bot через Agent Caller callback + multi-account email (Apple iCloud + Gmail рядом с mail.ru). Сегодня после демо.
+**v1.1 (13.05.2026, вечер) — Implemented:**
+- **Telegram-кнопка «🔍 Проверить почту»** в @CallerBaby666Bot. Reply keyboard (persistent внизу чата). Нажатие → `POST /digest-now` orchestrator → workflow → Telegram дайджест в том же чате. Активирована у Артёма (chat_id 249979054). Реализация через Agent Caller (Node.js): polling: true, обработчик `tg.on('message')` ловит текст кнопки, endpoint `/tg/setup-button` для активации у пользователя.
+- **Product-grade WA-skip разделение**: cron-расписание получает WA pre-alert + Telegram, on-demand (кнопка) — только Telegram. Реализовано через `RunParams.SkipWAAlert bool` в orchestrator workflow. Принцип: push-уведомление имеет смысл когда пользователь не ждёт результат.
+- **Multi-mailbox в mail-service**: env-конфиг `MAILBOXES_JSON` со списком ящиков, backward compatibility сохранена. 3 ящика Артёма работают (artem-mailru, artem-gmail, artem-icloud). Каждое письмо помечено `mailbox_label`/`mailbox_user` для трассировки. Контракт API не сломан.
+- **WhatsApp destroy timing fix**: 10 сек → 60 сек после `wa.sendMessage()` (10 сек = silent fail без exception).
+
+Дальнейшее развитие:
+
 - **Orchestrator v1.2** — Google Sheets append через Apps Script для истории дайджестов и аналитики. На этой неделе.
 - **Orchestrator v1.3** — WhatsApp pre-alert в parallel goroutine (не блокирует Telegram-доставку) + MAX мессенджер. По росту нагрузки.
 - **Orchestrator v2.0** — DEC-013 Mail Check On-Demand + state-service Redis (hot) + Postgres (warm). Триггер: первое требование regulatory или 50+ клиентов.
@@ -71,7 +78,7 @@
 - [DEC-008](../decisions/0008-parser-stack.md): Parser-service — библиотечный стек L1-L14 + LLM-vision Qwen-каскад. **Implemented 13.05.2026**, в production через systemd, RAM 38-86 МБ. Все 8 веток L1-L14 проверены smoke-тестом.
 - [DEC-009](../decisions/0009-summary-haiku.md): Summary-service на Claude Haiku 4.5 + DeepSeek-chat fallback. **Implemented 13.05.2026**, в production через systemd, RAM 30.6 МБ. Промпт v2 с живым разговорным тоном (best practices индустрии). Smoke-тест прошёл на реальных данных Таирова.
 - [DEC-010](../decisions/0010-n8n-email-digest-v1.md): N8N workflow Email Digest v1 — оркестратор полной цепочки mail-stack. **Superseded by [DEC-014](../decisions/0014-orchestrator-go-temporal-kamf.md)** 13.05.2026. Архитектурное решение пересмотрено в пользу Go custom orchestrator с трёх-шаговой эволюцией на Temporal headless v2 → KAMF v3. N8N остаётся только в Polygon (под деактивацию).
-- [DEC-014](../decisions/0014-orchestrator-go-temporal-kamf.md): Orchestrator — Go custom v1 → Temporal headless v2 → KAMF v3 (трёх-шаговая эволюция). **Implemented v1.0 on 13.05.2026** в production через systemd, ~1100 строк Go + 380 строк тестов, RAM 10 МБ, workflow 12 сек / 93 сек с WA. Реализация за 45-50 минут vs 3 часа плана. Активities переиспользуются на 80%+ через все три runtime.
+- [DEC-014](../decisions/0014-orchestrator-go-temporal-kamf.md): Orchestrator — Go custom v1 → Temporal headless v2 → KAMF v3 (трёх-шаговая эволюция). **Implemented v1.0 + v1.1 on 13.05.2026** в production через systemd. v1.0: ~1100 строк Go + 380 строк тестов, RAM 10 МБ, workflow 12 сек / 93 сек с WA, реализация за 45-50 минут. v1.1: Telegram-кнопка через Agent Caller callback + Multi-mailbox (3 ящика Артёма) + product-grade WA-skip для on-demand. Активities переиспользуются на 80%+ через все три runtime.
 - [DEC-011](../decisions/0011-attachment-service.md): Attachment-service — контракт возврата пути к файлу + кэш через FS + TTL 7 дней + лимит 25 МБ. **Implemented 12.05.2026**, в production через systemd, RAM 28 МБ.
 - [DEC-016](../decisions/0016-kubernetes-manifests.md): Kubernetes-friendly deployment manifests как production-grade артефакты. Accepted, реализация после DEC-014 (оркестратор). 17 файлов YAML, тестируются на minikube. Включает все принципы DEC-017 Уровень 0 (runAsNonRoot, NetworkPolicy, resource limits, Secrets API).
 - [DEC-017](../decisions/0017-secure-by-design.md): Secure by Design roadmap по 4 уровням. Accepted, реализация поэтапно. Уровень 0 (input validation, rate limit, CORS) — встраивается в каждый новый кирпич начиная с DEC-014. Уровни 1-3 — на горизонте недель. Перед вторым клиентом — обязательно весь Уровень 3 (152-ФЗ compliance, PenTest, threat model).

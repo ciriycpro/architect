@@ -135,3 +135,32 @@ return { ok: true };                       // ← клиент думает чт
 - **Smart routing** — если у клиента **открыт Telegram** в момент дайджеста, WA pre-alert не нужен. Можем определять через Telegram Bot API last_seen? На v3.
 
 **Стратегический сигнал:** Multi-channel notification — это **B2B-killer feature** для compliance-продукта в РФ. Регуляторные требования приходят неожиданно (ФНС, ГИТ, суды), пропустить дайджест = пропустить срок = штраф. **Двухканальная гарантия push** — это часть value proposition продукта, не «опциональная фича».
+
+## Implementation Notes (13.05.2026, после v1.0)
+
+В рамках v1.1 уточнено поведение multi-channel в зависимости от триггера workflow.
+
+### Разделение поведения cron vs on-demand
+
+В Orchestrator добавлен флаг `SkipWAAlert` в `RunParams`:
+- **Cron (расписание):** SkipWAAlert=false → WA pre-alert + Telegram content (полный двухканальный push)
+- **Кнопка / on-demand:** SkipWAAlert=true → только Telegram
+
+Архитектурное обоснование: пользователь, который **сам нажал** кнопку, **уже находится в Telegram** и ждёт ответ. WhatsApp pre-alert «открой Telegram» в этом случае избыточен. Push-уведомление имеет смысл только для cron-расписания, когда пользователь **не ждёт** результат.
+
+### WhatsApp destroy timing — детальная фиксация
+
+В процессе реализации v1.0 экспериментально установлено:
+- `wa.sendMessage()` возвращает success как только сообщение **поставлено в очередь** в headless Chrome
+- Реальная доставка на сервер WhatsApp требует **минимум 60 секунд** синхронизации после возврата `sendMessage()`
+- `wa.destroy()` ранее 60 секунд = silent fail (без exception, без логов)
+
+Фикс в Agent Caller `server.js`:
+```javascript
+console.log('WA → отправлено, ждём 60 сек...');
+await new Promise(r => setTimeout(r, 60000));  // не меньше!
+await wa.destroy();
+console.log('WA → Chrome убит');
+```
+
+Это критичный паттерн для whatsapp-web.js. Документировано в issue trackers библиотеки, но не явно в README. Для всех будущих интеграций с whatsapp-web.js — **минимум 60 секунд destroy delay**.
