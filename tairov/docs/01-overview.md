@@ -18,14 +18,13 @@
 
 ### Что работает в режиме полу-заглушки
 
-- **Polygon** (N8N workflow id `1632604d64e14e20`, 14 нод, active=1). Принимает письма по IMAP с ящика `5458508@mail.ru`, раскладывает вложения по папкам отправителей в Google Drive, ведёт два листа в Sheets: «Контакты» и «Лог писем». Работает нестабильно — часть писем теряется в IMAP-ноде N8N. **Будет деактивирован одновременно с активацией N8N Email Digest v1** (см. [DEC-010](../decisions/0010-n8n-email-digest-v1.md)).
+- **Polygon** (N8N workflow id `1632604d64e14e20`, 14 нод, active=1). Принимает письма по IMAP с ящика `5458508@mail.ru`, раскладывает вложения по папкам отправителей в Google Drive, ведёт два листа в Sheets: «Контакты» и «Лог писем». Работает нестабильно — часть писем теряется в IMAP-ноде N8N. **Будет деактивирован одновременно с запуском Orchestrator v1** (см. [DEC-014](../decisions/0014-orchestrator-go-temporal-kamf.md)).
 
 ### Что описано в плане, под реализацию следующими сессиями
 
 Стек микросервисов `mail-stack/` — горизонтальная архитектура взамен монолитного Документоведа v2:
 
-- **n8n-email-digest** ([DEC-010](../decisions/0010-n8n-email-digest-v1.md)) — оркестратор для Schedule + Webhook → mail → attachment → parser → summary → Sheets + Telegram. **На обсуждении: реализация на N8N v1 vs сразу на Go (DEC-014).**
-- **N8N Email Digest v1** ([DEC-010](../decisions/0010-n8n-email-digest-v1.md)) — оркестратор полной цепочки. Triggers: Schedule 09:00 MSK + Webhook /digest-now. Доставка результата в Google Sheets («Дайджест») + Telegram Таирову.
+- **orchestrator v1** ([DEC-014](../decisions/0014-orchestrator-go-temporal-kamf.md)) — Go custom оркестратор для Schedule + Webhook → mail → attachment → parser → summary → Sheets + Telegram. Стратегия трёх-шаговой эволюции: **v1 Go custom → v2 Temporal headless → v3 KAMF Runtime**. Сегодня реализуется v1. Каждая миграция переиспользует 80%+ кода (activities остаются, меняется runtime).
 
 Документовед v2 (DEC-004, 12 нод) — **не реализуется**, заменяется горизонтальным стеком mail-stack.
 
@@ -33,7 +32,7 @@
 
 - **N8N Контроллер**. Schedule + сверка по ИНН → проблемы no_contract / draft_only / expired → триггер Caller. Не существует ни в каком виде. Будет переписан как `controller-service` Python после стабилизации mail-stack.
 - **classifier-service / pre-filter перед parser** ([открытый вопрос в DEC-008](../decisions/0008-parser-stack.md)). Сейчас каждое письмо с вложением → parser → потенциально LLM-vision (0.5-1.5 руб за Mixed PDF). Спам-рассылки с PDF-вложениями (от newsletter@, marketing@) попадают в дорогой парсер. Стандарт индустрии 2024-2025 — двухстадийный фильтр: дешёвые правила (whitelist отправителей, blacklist newsletter-доменов, mail.ru X-Spam header, regex по subject) отсекают 80-95% трафика до parser-service. Заслуживает отдельного ADR на v2 (предполагаемый DEC-012).
-- **Mail Check On-Demand workflow** ([открытый вопрос в DEC-010](../decisions/0010-n8n-email-digest-v1.md)). Telegram-кнопка «Проверить почту» в @CallerBaby666Bot → ad-hoc проверка с момента последнего обращения. Требует `state-service` для tracking `last_check_timestamp`. Второй N8N workflow в дополнение к ежедневному Email Digest (DEC-010). Mail-stack переиспользуется без изменений — отличается только оркестратор и промпт summary. Заслуживает отдельного ADR на v2 (предполагаемый DEC-013).
+- **Mail Check On-Demand workflow** ([открытый вопрос в DEC-014](../decisions/0014-orchestrator-go-temporal-kamf.md)). Telegram-кнопка «Проверить почту» в @CallerBaby666Bot → ad-hoc проверка с момента последнего обращения. Требует `state-service` для tracking `last_check_timestamp`. Второй workflow в Orchestrator v1 (в дополнение к ежедневному Email Digest). Mail-stack переиспользуется без изменений — отличается только промпт summary. Заслуживает отдельного ADR на v2 (предполагаемый DEC-013).
 - **state-service** — SQLite, дедупликация по messageId, история обработки, tracking `last_check` per-user для on-demand режима. v2 направление.
 
 ### Артефакты в БД, не используются
@@ -64,7 +63,8 @@
 - [DEC-007](../decisions/0007-deployment-form.md): Форма развёртывания mail-stack — docker-friendly код + systemd v1. Accepted, валидировано фактом 12.05.2026.
 - [DEC-008](../decisions/0008-parser-stack.md): Parser-service — библиотечный стек L1-L14 + LLM-vision Qwen-каскад. **Implemented 13.05.2026**, в production через systemd, RAM 38-86 МБ. Все 8 веток L1-L14 проверены smoke-тестом.
 - [DEC-009](../decisions/0009-summary-haiku.md): Summary-service на Claude Haiku 4.5 + DeepSeek-chat fallback. **Implemented 13.05.2026**, в production через systemd, RAM 30.6 МБ. Промпт v2 с живым разговорным тоном (best practices индустрии). Smoke-тест прошёл на реальных данных Таирова.
-- [DEC-010](../decisions/0010-n8n-email-digest-v1.md): N8N workflow Email Digest v1 — оркестратор полной цепочки mail-stack. Accepted, реализация в плане.
+- [DEC-010](../decisions/0010-n8n-email-digest-v1.md): N8N workflow Email Digest v1 — оркестратор полной цепочки mail-stack. **Superseded by [DEC-014](../decisions/0014-orchestrator-go-temporal-kamf.md)** 13.05.2026. Архитектурное решение пересмотрено в пользу Go custom orchestrator с трёх-шаговой эволюцией на Temporal headless v2 → KAMF v3. N8N остаётся только в Polygon (под деактивацию).
+- [DEC-014](../decisions/0014-orchestrator-go-temporal-kamf.md): Orchestrator — Go custom v1 → Temporal headless v2 → KAMF v3 (трёх-шаговая эволюция). Accepted, **v1 реализуется 13.05.2026**. Активities переиспользуются на 80%+ через все три runtime. Mail-stack становится production-proof для KAMF на v3.
 - [DEC-011](../decisions/0011-attachment-service.md): Attachment-service — контракт возврата пути к файлу + кэш через FS + TTL 7 дней + лимит 25 МБ. **Implemented 12.05.2026**, в production через systemd, RAM 28 МБ.
 - [DEC-016](../decisions/0016-kubernetes-manifests.md): Kubernetes-friendly deployment manifests как production-grade артефакты. Accepted, реализация после DEC-014 (оркестратор). 17 файлов YAML, тестируются на minikube. Включает все принципы DEC-017 Уровень 0 (runAsNonRoot, NetworkPolicy, resource limits, Secrets API).
 - [DEC-017](../decisions/0017-secure-by-design.md): Secure by Design roadmap по 4 уровням. Accepted, реализация поэтапно. Уровень 0 (input validation, rate limit, CORS) — встраивается в каждый новый кирпич начиная с DEC-014. Уровни 1-3 — на горизонте недель. Перед вторым клиентом — обязательно весь Уровень 3 (152-ФЗ compliance, PenTest, threat model).

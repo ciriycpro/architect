@@ -4,6 +4,15 @@ Date: 2026-05-12
 
 ## Status
 
+**Superseded by [DEC-014](./0014-orchestrator-go-temporal-kamf.md) on 13.05.2026.** Архитектурное решение пересмотрено в пользу Go custom orchestrator с трёх-шаговой эволюцией. Причины пересмотра:
+- LLM-напарник теряет контекст когда workflow живёт в N8N UI (не в git)
+- 115-ФЗ требует структурированный audit log — N8N не дотягивает
+- Миграция с N8N на Go/Temporal/KAMF позже = переписывание с нуля
+- 296 МБ RAM на один workflow при доступной альтернативе ~15 МБ Go
+
+Содержимое DEC-010 ниже сохраняется как **исторический контекст** ранее принятого решения. Открытые вопросы (особенно про Mail Check On-Demand на v2) перешли в DEC-014.
+
+
 Accepted (planned for implementation)
 
 ## Context
