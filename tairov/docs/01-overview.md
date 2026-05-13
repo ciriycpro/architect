@@ -14,6 +14,8 @@
 
 - **Parser Service v1** (`/opt/mail-stack/parser-service/`, Python 3.10 + FastAPI, systemd, coo:8767). Endpoint `POST /parse` принимает `{path: "/var/lib/mail-stack/attachments/.../file.ext"}` → детерминированный роутер по MIME (уровень A) + per-page роутинг внутри PDF (уровень B) → возвращает unified JSON с текстом, методом, форматом, стоимостью. Реализованы все 8 веток L1-L14: TXT, CSV, JSON, XML, HTML, DOCX, XLSX, PDF (с pdf-inspector классификацией + PyMuPDF/pdfplumber извлечением), JPG/PNG/PDF-скан (через Qwen3-VL 235B primary + Qwen 2.5 VL 72B fallback по OpenRouter). Запущен 13.05.2026 ночью, RAM 38 МБ idle / 86 МБ после первого PDF. Smoke-тест прошёл на 8 ветках. Стоимость L14: ~$0.001 за JPG, ~$0.0005-0.0015 за страницу PDF в Mixed-режиме. См. [DEC-008](../decisions/0008-parser-stack.md). Docker-образ `parser-service:test` собран.
 
+- **Summary Service v1** (`/opt/mail-stack/summary-service/`, Python 3.11 + FastAPI, systemd, coo:8768). Endpoint `POST /summary` принимает массив писем с распарсенными вложениями → возвращает JSON с двумя форматами: `summary_markdown` для Google Sheets + `summary_telegram` до 1000 символов для бота. Промпт v2 (живой разговорный тон, без канцелярита, с применением best practices индустрии: Anthropic XML-tags, few-shot example на реальных данных Таирова, action verbs, length constraints, plain terms). Primary: Claude Haiku 4.5 через OpenRouter. Fallback: DeepSeek-chat (alias OpenRouter на актуальную DeepSeek V3.1+). Запущен 13.05.2026 днём, RAM 30.6 МБ (рекорд стека — stateless transformer). Smoke-тест прошёл на 2 реальных письмах Контур.Экстерн от ФНС — Haiku сам пометил аномалию (5 минут между «решение о выездной проверке» и «приостановление»). Стоимость: ~$0.005 за дайджест на 2 письмах. См. [DEC-009](../decisions/0009-summary-haiku.md). Docker-образ `summary-service:test` собран.
+
 ### Что работает в режиме полу-заглушки
 
 - **Polygon** (N8N workflow id `1632604d64e14e20`, 14 нод, active=1). Принимает письма по IMAP с ящика `5458508@mail.ru`, раскладывает вложения по папкам отправителей в Google Drive, ведёт два листа в Sheets: «Контакты» и «Лог писем». Работает нестабильно — часть писем теряется в IMAP-ноде N8N. **Будет деактивирован одновременно с активацией N8N Email Digest v1** (см. [DEC-010](../decisions/0010-n8n-email-digest-v1.md)).
@@ -22,7 +24,7 @@
 
 Стек микросервисов `mail-stack/` — горизонтальная архитектура взамен монолитного Документоведа v2:
 
-- **summary-service** ([DEC-009](../decisions/0009-summary-haiku.md)) — текстовое саммари массива писем через Claude Haiku 4.5 (через OpenRouter), fallback DeepSeek V3. coo:8768.
+- **n8n-email-digest** ([DEC-010](../decisions/0010-n8n-email-digest-v1.md)) — оркестратор для Schedule + Webhook → mail → attachment → parser → summary → Sheets + Telegram. **На обсуждении: реализация на N8N v1 vs сразу на Go (DEC-014).**
 - **N8N Email Digest v1** ([DEC-010](../decisions/0010-n8n-email-digest-v1.md)) — оркестратор полной цепочки. Triggers: Schedule 09:00 MSK + Webhook /digest-now. Доставка результата в Google Sheets («Дайджест») + Telegram Таирову.
 
 Документовед v2 (DEC-004, 12 нод) — **не реализуется**, заменяется горизонтальным стеком mail-stack.
@@ -61,7 +63,7 @@
 - [DEC-006](../decisions/0006-reality-check-09052026.md): Сверка с реальностью на 09.05.2026 + working principles N8N.
 - [DEC-007](../decisions/0007-deployment-form.md): Форма развёртывания mail-stack — docker-friendly код + systemd v1. Accepted, валидировано фактом 12.05.2026.
 - [DEC-008](../decisions/0008-parser-stack.md): Parser-service — библиотечный стек L1-L14 + LLM-vision Qwen-каскад. **Implemented 13.05.2026**, в production через systemd, RAM 38-86 МБ. Все 8 веток L1-L14 проверены smoke-тестом.
-- [DEC-009](../decisions/0009-summary-haiku.md): Summary-service на Claude Haiku 4.5. Accepted, реализация в плане.
+- [DEC-009](../decisions/0009-summary-haiku.md): Summary-service на Claude Haiku 4.5 + DeepSeek-chat fallback. **Implemented 13.05.2026**, в production через systemd, RAM 30.6 МБ. Промпт v2 с живым разговорным тоном (best practices индустрии). Smoke-тест прошёл на реальных данных Таирова.
 - [DEC-010](../decisions/0010-n8n-email-digest-v1.md): N8N workflow Email Digest v1 — оркестратор полной цепочки mail-stack. Accepted, реализация в плане.
 - [DEC-011](../decisions/0011-attachment-service.md): Attachment-service — контракт возврата пути к файлу + кэш через FS + TTL 7 дней + лимит 25 МБ. **Implemented 12.05.2026**, в production через systemd, RAM 28 МБ.
 
