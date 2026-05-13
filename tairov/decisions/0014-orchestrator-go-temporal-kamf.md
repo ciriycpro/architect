@@ -496,7 +496,7 @@ Trade-off: workflow duration 12 сек → 93 сек (8× медленнее). �
 | Версия | Что | Статус |
 |---|---|---|
 | **v1.0** ✅ | Go-orchestrator + Telegram-доставка + WhatsApp pre-alert | **Implemented 13.05.2026** |
-| **v1.1** | Telegram-кнопка «Проверить почту» (callback в Agent Caller → POST /digest-now) + multi-account email (3 systemd-instance mail-service) | В работе (после v1.0) |
+| **v1.1** ✅ | Telegram-кнопка «Проверить почту» (callback в Agent Caller → POST /digest-now) + multi-mailbox в mail-service (один сервис со списком ящиков в MAILBOXES_JSON env-конфиге, не 3 systemd-instance) + product-grade WA-skip для on-demand | **Implemented 13.05.2026 (вечер)** |
 | **v1.2** | Google Sheets append через Apps Script (история дайджестов, аналитика) | На этой неделе |
 | **v1.3** | WhatsApp pre-alert в parallel goroutine + MAX мессенджер (third channel) | Когда нужно |
 | **v1.4** | MCP server обёртка над mail-stack для интеграции с personal AI assistants | На v3 |
