@@ -4,7 +4,7 @@ Date: 2026-05-12
 
 ## Status
 
-Accepted
+Accepted — **Implemented on 12-13.05.2026** (production via systemd, Memory 86 МБ, port 8767)
 
 ## Context
 
@@ -146,5 +146,79 @@ PDF → L1 (pdf-inspector) классифицирует ~10-50мс
 - Когда заменить PyMuPDF — при коммерциализации продукта
 - Когда добавить чтение EPUB / EML вложенных — по запросу
 - Когда добавить AI-роутер для определения типа документа (счёт/договор/акт) — это отдельный сервис `classifier-service`, v2 направление, не часть parser-service
+- **Активировать `pdfplumber.extract_tables()` для табличных PDF.** Сейчас L4 использует обычное `extract_text()`, теряя структуру таблиц. Для документов с таблицами (счета, акты, выгрузки из 1С) переход на `extract_tables()` + конвертация в markdown-таблицу даст существенный прирост качества downstream-LLM (классификатор, summary). Для текстов с таблицами LLM понимает markdown-таблицы на ~2-3 раза лучше «потока слов».
+- **Pre-filter перед parser-service (hierarchical classification — ОТДЕЛЬНЫЙ DEC v2).** Каждый Mixed-PDF из спам-рассылки сейчас стоит 0.5-1.5 руб (per-page L14). На потоке 100 спам-рассылок в день = 50-150 руб/мес/клиент. Стандарт индустрии 2024-2025 (Stalwart docs, IJRASET review) — двухстадийный фильтр: сначала **дешёвые правила** (whitelist отправителей, blacklist newsletter-доменов, mail.ru X-Spam header, regex по subject), потом дорогой парсинг. ~80-95% входящего трафика отсекается на стадии 1. Реализация: `classifier-service` ИЛИ IF-нода в N8N перед attachment+parser. Это **отдельная архитектурная инициатива на v2**, заслуживает собственного ADR.
+- Конфигурируемый порог `PDF_CONFIDENCE_THRESHOLD` per-MIME — сейчас 0.8 для всех PDF. По факту тестирования (12.05.2026) на презентации Контур.Экстерн ЦЭД (11 страниц) pdf-inspector классифицировал как `Mixed conf=0.5` → ушла в LLM-vision per-page = 10 вызовов Qwen. Возможна стратегия: при `conf < 0.3 = всегда L14`, при `conf 0.3-0.7 = пробовать PyMuPDF первым`, при `conf > 0.7 = быстрый путь TextBased`.
+- `.meta.json` рядом с PDF для кэша результата pdf-inspector — повторный парсинг того же файла будет мгновенным.
 
 **Стратегический сигнал:** parser-service — это **переиспользуемый компонент**. Тот же API `POST /parse` будет использоваться не только Compliance Helper, но и другими проектами стека `mail-stack/`, а также в перспективе — в KAMF как стандартный document-processing блок.
+
+## Implementation Notes (12-13.05.2026)
+
+Реализован за один заход в ночь 12-13.05.2026 (~3 часа от установки зависимостей до production). Не v0-скелет, а полная реализация L1-L14 по контракту.
+
+### Что сделано
+
+- **Код:** `/opt/mail-stack/parser-service/server.py` (622 строки, 22 функции, все уникальные)
+- **Зависимости:** 38 pinned пакетов в `requirements.txt` (включая PyMuPDF 1.27.2, pdfplumber 0.11.9, mammoth 1.12, openpyxl 3.1.5, xlrd 2.0.2, python-pptx 1.0.2, beautifulsoup4 4.14.3, lxml 6.1.0, pdf-inspector 0.1.1)
+- **Env-конфиг:** `/etc/mail-stack/parser-service.env` chmod 600 root:root, OPENROUTER_API_KEY + модели + таймауты
+- **Systemd-юнит:** `/etc/systemd/system/parser-service.service` с UMask=0022
+- **Docker-образ:** `parser-service:test` собран как артефакт. **python:3.10-slim** (а не 3.11) — чтобы хостовый wheel pdf-inspector cp310 подошёл без перекомпиляции
+- **Memory в production:** 38.5 МБ idle → 86 МБ после первого PDF (PyMuPDF/lxml загрузились лениво)
+
+### Подтверждённое поведение (8 веток L1-L14 на реальных файлах)
+
+| Тест | method | Результат |
+|---|---|---|
+| L11 TXT | `read` | ✅ 128 символов, кириллица декодирована |
+| L10 CSV | `csv` | ✅ 95 символов, табуляция как разделитель |
+| L13 JSON | `json` | ✅ 150 символов, структура сохранена |
+| L12 XML | `xml.etree` | ✅ 117 символов, теги+значения извлечены |
+| L9 HTML | `beautifulsoup4` | ✅ 71 символ, `<script>` и `<style>` отрезаны |
+| L5 DOCX | `mammoth` | ✅ 164 символа, заголовки + параграфы |
+| L6 XLSX | `openpyxl` | ✅ 153 символа, 2 листа, вычисленные значения |
+| L1+L3 PDF (Контур.Экстерн) | `pymupdf` → потом per-page L14 | 11 страниц, 5931 символ |
+| L14 JPG (иск Таирова) | `qwen3-vl-235b` | 2745 символов, $0.00147 = 0.1 руб |
+
+### Найденные баги и фиксы
+
+1. **API имя pdf-inspector было угадано неверно.** В DEC-008 первоначально ожидалось `pdf_inspector.classify_pdf_bytes(...)`. Реальный API: `pdf_inspector.detect_pdf_bytes(...)`. Возвращает `PdfResult` с полями `pdf_type` (lowercase: 'text_based', 'scanned', 'image_based', 'mixed'), `confidence`, `pages_needing_ocr`. **Исправлено:** добавлена нормализация snake_case → CamelCase для совместимости с DEC-008. Без фикса pdf-inspector не вызывался, работал PyMuPDF-fallback.
+
+2. **Per-page роутинг изначально упростили** (весь Mixed PDF → vision). По требованию доделан до полной реализации DEC-008: текстовые страницы → PyMuPDF (бесплатно), image-only страницы → L14 LLM-vision.
+
+### Стоимость в работе
+
+Зафиксированная по факту (Qwen3-VL 235B Instruct):
+- Один JPG (456 КБ, иск Таирова) → $0.00093 ≈ 0.07 руб
+- Одна страница PDF в render+vision → $0.0005-0.0015 ≈ 0.04-0.1 руб
+- Презентация 11 стр в Mixed-режиме (10 vision-вызовов) → ~$0.005-0.015 ≈ 0.5-1.5 руб
+
+### Архитектурное наблюдение
+
+На презентации Контур.Экстерн (11 страниц, текстовый слой есть) две классификации разошлись:
+- **pdf-inspector:** `Mixed conf=0.5` → роутер ушёл в per-page L14
+- **PyMuPDF-эвристика (fallback):** `TextBased conf=1.0` → быстрый путь через PyMuPDF
+
+pdf-inspector консервативнее (находит проблемные страницы лучше), PyMuPDF-эвристика дешевле и быстрее. Доверяем pdf-inspector — это «умнее», но дороже на пограничных PDF. Конфигурируемый порог `PDF_CONFIDENCE_THRESHOLD` per-MIME — вопрос v2.
+
+### Docker — урок
+
+Multi-stage с компиляцией Rust внутри Docker (Stage 1: Rust toolchain + maturin → wheel; Stage 2: только runtime) **не сработал из-за того что pip в Stage 2 не знал о /tmp/wheels от Stage 1** и пытался пересобрать pdf-inspector из исходников → второй раунд компиляции 10+ минут.
+
+**Финальное решение:** `python:3.10-slim` (а не 3.11) + готовый cp310 wheel из локального pip-кэша хоста, скопированный в проект. Build за 70 секунд, никакого Rust в Docker, образ ~250 МБ. Этот подход — **отдельная заметка для KAMF/HRrep**: «build стратегия для Rust-зависимостей в Python-проектах».
+
+### Production-готовность
+
+| Критерий | Статус |
+|---|---|
+| Systemd active + enabled | ✅ |
+| Memory footprint | ✅ 38 МБ idle, 86 МБ после первого PDF |
+| Restart=always | ✅ |
+| Логи в journalctl | ✅ |
+| Healthcheck endpoint | ✅ возвращает конфиг + доступность OpenRouter |
+| Env-конфиг изолирован | ✅ chmod 600 root:root |
+| OPENROUTER_API_KEY в env, не в коде | ✅ |
+| Все 8 веток L1-L14 проверены smoke-тестом | ✅ |
+| Per-page роутинг для Mixed PDF | ✅ (фикс по требованию) |
+| pdf-inspector реально работает (не fallback) | ✅ (после фикса API имени) |
+| Открытые v2-вопросы зафиксированы | ✅ |
