@@ -149,6 +149,46 @@ mail-stack/
 **Открытые вопросы:**
 
 - **DEC-023 «Compliance Logic Layer»** — когда станет понятен конкретный набор compliance-задач после демо Таирову. Включает в себя обработку документов на Google Drive, классификацию писем, и **outbound email-channel через Agent Caller `/send-email`** для автоответов контрагентам, отправки подписанных документов, подтверждений получения. Email-канал у Agent Caller готов, не используется на v1.0 (входящий поток не требует ответов). Активируется когда compliance-логика будет писать обратно.
+
+  **Архитектурная дискуссия (14.05.2026, открытый вопрос для DEC-023):** Compliance Logic Layer — это **бизнес-логика без LLM-вызовов** (rules engine, SLA-tracking, audit log, state machine, multi-tenant изоляция, notification routing). LLM-операции (parse, summary, classify) остаются в mail-stack Python-микросервисах как переиспользуемые тулы. Это создаёт естественное архитектурное разделение:
+
+  ```
+  ┌─────────────────────────────────────────────┐
+  │  BUSINESS LOGIC LAYER (без LLM)             │
+  │  - Compliance rules engine                  │
+  │  - SLA tracking & state machines            │
+  │  - Multi-tenant isolation                   │
+  │  - Audit log (152-ФЗ)                       │
+  │  - Notification preferences                 │
+  │  - Scheduling                               │
+  │  - Webhook receivers                        │
+  └──────────────────┬──────────────────────────┘
+                     │ HTTP calls
+                     ▼
+  ┌─────────────────────────────────────────────┐
+  │  AI/ML TOOLS LAYER (mail-stack, Python)     │
+  │  - parser-service (LLM vision)              │
+  │  - summary-service (LLM digest)             │
+  │  - classifier-service (новый, LLM classify) │
+  │  - mail / attachment / future agents        │
+  └─────────────────────────────────────────────┘
+  ```
+
+  **Кандидаты для business-logic слоя:**
+
+  1. **Spring Boot 3 + Spring AI + Temporal Java SDK** — enterprise-grade JVM-стек. Плюсы: Spring Security для AAA, Spring Data JPA для multi-tenant Postgres с RLS, Spring Statemachine для compliance-flows, Spring Cloud GCP для Google Drive API, **на 10+ клиентах JVM дешевле Python** за счёт CPU throughput. Spring AI имеет native поддержку OpenRouter/Anthropic для случаев когда внутри business-логики нужен LLM-call (генерация ответа). Минусы: третий язык в стеке (Python + Go + Node.js + Java), команда должна управлять 4 экосистемами (на масштабах микро-проекта с enterprise-качеством — приемлемо).
+
+  2. **Python (LangGraph / CrewAI / FastAPI + Celery)** — однородный стек со mail-stack. Плюсы: один язык, переиспользование Python-экспертизы, быстрый старт. Минусы: на growing trafic уступает JVM по throughput, Spring Security/Data зрелее для enterprise multi-tenant.
+
+  3. **Go** — отдельный микросервис рядом с orchestrator. Плюсы: переиспользование Go-инфраструктуры, минимальный RAM. Минусы: бедная экосистема для enterprise business-logic (auth, ORM, state machines менее зрелые чем Spring/Python).
+
+  **Архитектурный принцип определяющий выбор (не догма):** «**Скорость + производительность + цена определяют выбор языка** для каждого слоя. Брать лучшее с рынка — аксиома. Карьерные сигналы и мода — не обоснование.»
+
+  **Архитектурный принцип two-tier (предлагается к рассмотрению, не утверждён):** «**Любая логика, не требующая LLM-вызовов или ML-моделей**, может реализовываться на business-tier (Spring Boot или альтернатива). Mail-stack Python-микросервисы остаются как domain-tools для AI/ML операций. Это разделение позволяет каждому слою использовать оптимальный технологический стек.»
+
+  **Ограничение которое не должно нарушаться:** Spring Boot (или любой выбранный business-tier язык) **не должен убивать гибкость и инновации** mail-stack — скорость info-процессов и протекание data-flows между микросервисами критичны. Если выбор языка business-tier создаёт bottleneck или усложняет интеграцию с Python-тулами — это плохой выбор.
+
+  **Решение по DEC-023:** конкретный язык business-tier фиксируется при написании самого DEC-023, после понимания первой реальной compliance-задачи (Таиров уже сделал демо, следующие компонент-задачи определят paradigm).
 - **DEC-024 «Observability layer»** — Prometheus + Grafana для метрик per-tool. Триггер: 2-й потребитель.
 - **DEC-025 «OpenAPI documentation»** — внешний контракт. Триггер: запрос интеграции.
 - **DEC-026 «Multi-tenant architecture»** — изоляция данных между клиентами. Триггер: 2-й платящий клиент.
