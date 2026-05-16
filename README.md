@@ -11,6 +11,9 @@
 4. **`<workspace>/decisions/`** — история архитектурных решений (ADR)
 5. **`<workspace>/docs/`** — Service Blueprint и техническая документация
 
+**Связанные репозитории:**
+- **https://github.com/ciriycpro/Compliance-Assistant** — production-код 7 микросервисов mail-stack (зеркало `/opt/mail-stack/` на coo). Зайди туда когда нужно посмотреть актуальный код orchestrator / state-service / mail-stack Python-сервисов / agent-caller.
+
 ## Протокол синхронизации артефактов через git-патчи
 
 Когда новая сессия Claude помогает с обновлением архитектурных артефактов (ADR, DSL, docs), используется единый протокол: **один `.patch` файл, одна команда применения на стороне человека**. Это сложилось практикой с 09.05.2026 и применяется во всех последующих sync-итерациях.
@@ -82,6 +85,12 @@ git am < ~/Downloads/sync-DDMMYYYY-B.patch
 
 `~/Downloads/` — стандартная папка Safari/Chrome на маке. Когда Claude отдаёт файл через `present_files`, Артём кликает по нему в чате — файл скачивается именно туда.
 
+### Кнопка для синхронизации кода с coo
+
+Production-код в `Compliance-Assistant` репо обновляется через отдельную кнопку на маке:
+
+**`~/Desktop/sync-code-from-coo.command`** — ssh на coo, делает `git add/commit/push` из `~/compliance-assistant-repo/`. Двойной клик → актуальный snapshot production-кода улетает на GitHub.
+
 ### Именование патчей
 
 `sync-DDMMYYYY-<короткое описание>.patch`
@@ -123,20 +132,20 @@ git add -A && git commit -m "Sync ..."
 - Status: архитектура спроектирована, MVP-кода нет
 
 ### `tairov/` — комплаенс-помощник для ИП Таирова
-Активная разработка. Автоматизация документооборота.
-- C4: 3 уровня (System Context, Container, Component для Документоведа)
-- ADR: 5 решений (DEC-001 до DEC-005), история разворотов "39 нод → 12 нод → микросервисы"
-- Status: mail-service v1 работает на coo:8765, остальные агенты в разработке
-- Ключевой висящий хвост: Agent Caller end-to-end
+Production v1.2.2. Автоматизация документооборота через email digest.
+- C4: 3 уровня (System Context, Container, Component)
+- ADR: 19 решений (DEC-001 ... DEC-024), последние v1.2.x — DEC-013 (incremental + event-driven progress) + DEC-021 (state-service)
+- Status: 7 микросервисов на coo в production. Cron ежедневно в 10:00 МСК. Кнопка on-demand у пользователя.
+- Production-код: https://github.com/ciriycpro/Compliance-Assistant
 
 ### `test/` — учебная песочница
 Не использовать. Тестовые DSL-файлы.
 
-## Текущий фокус (08.05.2026, 00:30)
+## Текущий фокус (16.05.2026)
 
-- **Главное**: проверка эксперимента — может ли AI читать этот репо и понимать контекст с нуля.
-- **Tairov pending**: Agent Caller на coo, end-to-end прогон 6 агентов. Не сделано 7-8 мая.
-- **Завтра 9 мая суббота**: согласия на персданные команды СтартПром.
+- **Tairov в production**: Compliance Helper работает. Orchestrator v1.2.2 + state-service v1.0 + 5 микросервисов на coo. Cron 10:00 МСК ежедневно, кнопка у Таирова активна.
+- **Production-код**: зеркало в отдельном репо `ciriycpro/Compliance-Assistant` — для AI-сессий доступен код всех 7 сервисов параллельно с архитектурой.
+- **Следующее**: DEC-026 multi-tenant (параллельный mail-service для второго клиента), DEC-023 Compliance Logic Layer (Spring Boot business-tier).
 
 ## Контекст работы с архитектурой
 
@@ -163,4 +172,3 @@ git add -A && git commit -m "Sync ..."
 - Сайт: ciriyc.ru
 - Email: inbox@ciriyc.ru
 - Telegram: @Economexer
-
