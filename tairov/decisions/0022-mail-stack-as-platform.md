@@ -220,3 +220,57 @@ mail-stack/
 Эти шаги **не календарные**, а **по факту требований**. Например, если 2-го платящего клиента не будет 6 месяцев — multi-tenant не делаем 6 месяцев. Если завтра придёт партнёр с запросом MCP-интеграции — MCP делаем послезавтра, остальное ждёт.
 
 **Принцип:** **архитектурные изменения по факту требований, не по теоретическому плану.**
+
+## Update (16.05.2026) — Event bus откладывается до DEC-023
+
+В процессе реализации DEC-013 (Mail Check On-Demand + event-driven progress, см. DEC-014 v1.2.2 Implementation Notes) рассматривался вопрос: **использовать ли Kafka/NATS** для прогресс-событий между orchestrator и Agent Caller вместо HTTP POST?
+
+### Аргумент «за Kafka»
+«Out-of-the-box event-driven, не изобретать велосипед, KAMF всё равно будет на Kafka».
+
+### Аргументы «против сейчас»
+
+1. **У нас 1 producer + 1 consumer** (orchestrator → Agent Caller). Kafka pub/sub нужна когда **много** подписчиков на одно событие.
+2. **Throughput** — 1-3 события в день. Kafka рассчитана на тысячи/сек. Использовать Kafka для 3 событий = молотом гвоздь забивать.
+3. **Operational complexity** — +Kafka broker (500 МБ RAM) + ZooKeeper/KRaft (200 МБ) + Go/Node.js producer/consumer code. coo сейчас 51% RAM используется → +900 МБ риск OOM.
+4. **Нет replay/audit требований сейчас** — Agent Caller может пропустить событие, юзер просто увидит таймаут guard-таймера через 11 минут. Не критично.
+5. **Loose coupling не нужен** — оба сервиса знают друг друга по HTTP URL.
+6. **Compliance Logic Layer (DEC-023)** — действительно увеличит количество сервисов до 9-10. Но pattern общения **по умолчанию RPC** (synchronous classify/generate/route). Pub/sub паттерн появится если задачи compliance потребуют one-to-many (события на несколько подписчиков).
+
+### Принятое решение
+
+**Event bus (Kafka/NATS/Redis Streams) рассматривается на DEC-023** при появлении **конкретных pub/sub паттернов** в compliance workflow.
+
+**Эволюционный путь к event-driven:**
+
+```
+v1.2.x (сейчас):   HTTP POST между orchestrator и Agent Caller
+                    1 producer + 1 consumer, push-pattern, latency <1сек
+                    ↓
+v2.0 (Temporal):   Temporal Signals — встроенный event pattern в Workflow Engine
+                    Без Kafka (Temporal имеет свою очередь внутри)
+                    ↓
+v2.5 (DEC-023):    Compliance Logic Layer
+                    Если задачи требуют one-to-many → возможно NATS / Redis Streams (легче Kafka)
+                    Если RPC достаточно → продолжаем HTTP
+                    ↓
+v3.0 (KAMF):       Kafka родная — multi-agent industrial, real-time stream processing
+                    Здесь Kafka оправдана: множество агентов, audit replay, throughput
+```
+
+**Архитектурный принцип DEC-022 подтверждается:** **архитектурные изменения по факту требований, не превентивно**. «На всякий случай» Kafka сейчас — это:
+- +900 МБ RAM (риск OOM на coo)
+- +операционная сложность (мониторинг, retention, schema registry)
+- Время не на бизнес-логику compliance
+
+Когда придёт **реальный pub/sub паттерн** (или multi-tenant с 5+ клиентами, или audit replay) — рефакторинг будет **локальный** (только в orchestrator + получатели), не сквозной.
+
+### Spring Boot для DEC-023 — статус обсуждения
+
+Принятое 14.05.2026 рассмотрение **three-tier (BL без LLM на JVM, AI/ML tools на Python)** остаётся **актуальным** и **не противоречит** решению по event bus:
+
+- Spring Boot как business-logic tier — **отдельный вопрос** от транспорта между сервисами
+- Между Spring Boot и mail-stack будет **HTTP RPC** (Spring WebClient / RestTemplate) — то же что сейчас orchestrator использует
+- Event bus может появиться **внутри** Spring Boot (Spring Cloud Stream) когда станет нужен — это **локальное решение** DEC-023, не сквозное архитектурное
+
+**Финальное решение DEC-023 по конкретному стеку BL** — фиксируется при написании самого DEC-023 после понимания первой реальной compliance-задачи.
