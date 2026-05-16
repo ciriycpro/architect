@@ -14,6 +14,28 @@
 **Связанные репозитории:**
 - **https://github.com/ciriycpro/Compliance-Assistant** — production-код 7 микросервисов mail-stack (зеркало `/opt/mail-stack/` на coo). Зайди туда когда нужно посмотреть актуальный код orchestrator / state-service / mail-stack Python-сервисов / agent-caller.
 
+### Как читать код из Compliance-Assistant без беготни через пользователя
+
+**Правильно (не дёргать Артёма):**
+
+```bash
+# Один раз в начале сессии — shallow clone (~10 МБ, секунды):
+cd /tmp && git clone --depth 1 https://github.com/ciriycpro/Compliance-Assistant.git
+
+# Потом читать только нужное:
+cat /tmp/Compliance-Assistant/orchestrator/workflow/email_digest_v1.go
+grep -A 5 "lock_held" /tmp/Compliance-Assistant/orchestrator/workflow/*.go
+view /tmp/Compliance-Assistant/agent-caller/server.js
+```
+
+**НЕ грузи весь репо в контекст** — он 3+ МБ, разорит токен-бюджет. Клон лежит у тебя на диске, читай файлы поштучно через `cat` / `view` / `grep` когда **конкретно** нужны.
+
+**Антипаттерн — просить Артёма:** "покажи содержимое X на coo" — не нужно. Все production-файлы доступны в репо. Запроси у пользователя только если файл явно отсутствует (например свежее изменение которое ещё не запушено кнопкой `sync-code-from-coo.command`).
+
+### Кнопка `sync-code-from-coo.command` на маке
+
+На рабочем столе Артёма есть скрипт-кнопка которая делает `gcloud compute ssh coo` → `git add/commit/push` из `~/compliance-assistant-repo/` → актуальный snapshot улетает на GitHub. Если код в репо отстаёт от того что Артём делал на coo последние 5 минут — попроси его двойным кликом нажать кнопку.
+
 ## Протокол синхронизации артефактов через git-патчи
 
 Когда новая сессия Claude помогает с обновлением архитектурных артефактов (ADR, DSL, docs), используется единый протокол: **один `.patch` файл, одна команда применения на стороне человека**. Это сложилось практикой с 09.05.2026 и применяется во всех последующих sync-итерациях.
