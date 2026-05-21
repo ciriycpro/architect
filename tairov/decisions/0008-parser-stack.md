@@ -151,7 +151,7 @@ PDF → L1 (pdf-inspector) классифицирует ~10-50мс
 - Конфигурируемый порог `PDF_CONFIDENCE_THRESHOLD` per-MIME — сейчас 0.8 для всех PDF. По факту тестирования (12.05.2026) на презентации Контур.Экстерн ЦЭД (11 страниц) pdf-inspector классифицировал как `Mixed conf=0.5` → ушла в LLM-vision per-page = 10 вызовов Qwen. Возможна стратегия: при `conf < 0.3 = всегда L14`, при `conf 0.3-0.7 = пробовать PyMuPDF первым`, при `conf > 0.7 = быстрый путь TextBased`.
 - `.meta.json` рядом с PDF для кэша результата pdf-inspector — повторный парсинг того же файла будет мгновенным.
 
-**Стратегический сигнал:** parser-service — это **переиспользуемый компонент**. Тот же API `POST /parse` будет использоваться не только Compliance Helper, но и другими проектами стека `mail-stack/`, а также в перспективе — в KAMF как стандартный document-processing блок.
+**Стратегический сигнал:** parser-service — это **переиспользуемый компонент**. Тот же API `POST /parse` будет использоваться не только Compliance Assistant, но и другими проектами стека `mail-stack/`, а также в перспективе — в KAMF как стандартный document-processing блок.
 
 ## Implementation Notes (12-13.05.2026)
 

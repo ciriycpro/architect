@@ -66,7 +66,7 @@ func (w *WhatsAppActivity) SendMessage(ctx context.Context, params SendWAParams,
 **2. SMS вместо WhatsApp.**
 - Плюсы: 100% доставка, не зависит от WA-Web
 - Минусы: платно (~$0.05 за SMS), требует SMS-gateway аккаунт
-- **Отложено на v3** при росте до 10+ клиентов и enterprise-tariff.
+- **Отложено на v3** при росте масштаба и enterprise-tariff.
 
 **3. WhatsApp Business API (Twilio/официальный).**
 - Плюсы: enterprise-grade, не хрупкий

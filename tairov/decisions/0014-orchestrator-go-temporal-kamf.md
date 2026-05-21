@@ -79,7 +79,7 @@ v3 (3-6 месяцев)  → KAMF runtime с StateGraph (когда фреймв
 - **Отвергнуто.** Объяснено детально в DEC-006 и обсуждении 13.05.2026.
 
 **2. Apache Airflow — DAG-based pipeline platform.**
-- Плюсы: индустриальный стандарт для document/data pipelines, карьерный сигнал
+- Плюсы: индустриальный стандарт для document/data pipelines, архитектурное обоснование
 - Минусы:
   - 500+ МБ RAM (worker + scheduler + webserver + Postgres + Redis для Celery)
   - DAG-парадигма для batch jobs, не для webhook-driven workflows
@@ -266,8 +266,7 @@ GET /metrics
 **Temporal → KAMF на v3:**
 - KAMF в скомпилированном работающем состоянии
 - Готовность инвестировать 3-5 дней на миграцию ради independence
-- Демо на ИЦК/АП РФ/Минцифры — показ KAMF на работающем продукте
-- Карьерный/продуктовый сигнал «свой framework production-proof»
+- Архитектурное обоснование «свой framework production-proof»
 
 ### v1 может оказаться long-term solution
 
@@ -349,9 +348,8 @@ GET /metrics
 - **DEC-020 «Миграция Temporal → KAMF Runtime»** — на v3. Триггер: KAMF в работоспособном состоянии + готовность инвестировать 3-5 дней + потребность в карьерном/продуктовом сигнале. Объём ~3-5 дней.
 - **DEC-021 «State-service на Redis (hot) + Postgres (warm)»** — нужен на v2 для tracking `last_check_timestamp` per-user (Mail Check On-Demand), `last_processed_uid` per-account (multi-account), dedup IDs. Двухуровневая память по канону: Redis для hot path, Postgres для warm.
 - **Apache Airflow** для batch ML pipelines на v3 — когда появятся classifier-training, fine-tuning, корпус документов клиентов для адаптации Haiku. Не для оркестрации mail-stack.
-- **Compliance Helper как production-proof для KAMF.** На ИЦК Электроэнергетика 26.05 — показ KAMF архитектуры с референсом на работающую B2B-имплементацию (документооборот ИП Таирова). Позиционирование: «не теоретический стандарт, а проверенный на конкретном бизнес-кейсе».
 
-**Стратегический сигнал:** Trio-эволюция Go custom → Temporal headless → KAMF — это **уникальный архитектурный путь** для AI/Compliance B2B-стартапа в РФ. Это **дороже** чем «взять SaaS и склеить», но **сильно дешевле** чем retrofit production-grade требований на работающую систему позже. На собеседованиях AI Architect такой путь демонстрирует **системное архитектурное мышление**, не «как сделать быстро».
+**Стратегический сигнал:** Trio-эволюция Go custom → Temporal headless → KAMF — это **уникальный архитектурный путь** для AI/Compliance B2B-стартапа в РФ. Это **дороже** чем «взять SaaS и склеить», но **сильно дешевле** чем retrofit production-grade требований на работающую систему позже. В архитектурных обзорах такой путь демонстрирует **системное архитектурное мышление**, не «как сделать быстро».
 
 ## Implementation Plan для v1 (сегодня)
 

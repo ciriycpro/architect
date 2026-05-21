@@ -1,4 +1,4 @@
-# Tairov Compliance Helper
+# Tairov Compliance Assistant
 
 Автоматизация документооборота ИП Таирова на сервере coo: приём документов по email/Drive → распознавание → запись в реестр Google Sheets → алерты по 3 типам проблем (отсутствие договора, только драфт, просрочка) в Telegram/WhatsApp/Email.
 
@@ -55,12 +55,12 @@
 
 ### Вне-проектные артефакты
 
-- **`Telegram Photo to Google Drive`** (N8N workflow id `pvsSCtB0CCpZl50W`, 11 нод, active=1). Telegram-бот фотобудка. Первая успешная сборка владельца в N8N (27.04.2026). К Compliance Helper не относится.
+- **`Telegram Photo to Google Drive`** (N8N workflow id `pvsSCtB0CCpZl50W`, 11 нод, active=1). Telegram-бот фотобудка. Первая успешная сборка владельца в N8N (27.04.2026). К Compliance Assistant не относится.
 
 ## Внешние системы
 
 - **mail.ru SMTP/IMAP** — почтовый сервер `5458508@mail.ru`, основной канал входящих документов от Таирова и контрагентов.
-- **Google Workspace** — Drive (файловое хранилище, папка `1reHuOVUYwz4OfoX80xzr4nk2kfZ9x1lL` для документов Таирова) + Sheets (реестр, файл `база_документов_таиров`, id `13SMWzIiwDVRc1eYKJcGm1a-R__7Hbc1hvChTXvZhfsg`).
+- **Google Workspace** — Drive (файловое хранилище, папка `1reHuOVUYwz4OfoX80xzr4nk2kfZ9x1lL` для документов Таирова) + Sheets (реестр, файл `document_registry`, id `13SMWzIiwDVRc1eYKJcGm1a-R__7Hbc1hvChTXvZhfsg`).
 - **OpenRouter API** — LLM провайдер: Qwen3-VL 235B + Qwen 2.5 VL 72B (vision для JPG/PDF-сканов в parser-service), Claude Haiku 4.5 + DeepSeek V3 (саммари в summary-service).
 - **Telegram + WhatsApp + Email** — каналы доставки алертов.
 
