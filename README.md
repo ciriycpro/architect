@@ -155,20 +155,26 @@ git add -A && git commit -m "Sync ..."
 - Status: архитектура спроектирована, MVP-кода нет
 
 ### `tairov/` — compliance assistant для ИП Таирова
-Production v1.2.2. Автоматизация документооборота через email digest.
+Production v1.2.2 + Compliance Logic Layer skeleton v0.0.1-SNAPSHOT (23.05.2026). Автоматизация документооборота + business-tier на Spring Boot.
 - C4: 3 уровня (System Context, Container, Component)
-- ADR: 19 решений (DEC-001 ... DEC-024), последние v1.2.x — DEC-013 (incremental + event-driven progress) + DEC-021 (state-service)
-- Status: 7 микросервисов на coo в production. Cron ежедневно в 10:00 МСК. Кнопка on-demand у пользователя.
+- ADR: 19 решений (DEC-001 ... DEC-025), последние — DEC-023 (Compliance Logic Layer Spring Boot tier) + DEC-025 (super-ADR полной архитектуры)
+- Status: 7 микросервисов на coo в production + 8-й сервис `compliance-logic` (Java/Spring Boot 3.5, Postgres, Liquibase) — skeleton работает, Registry minimum (Client entity) + security baseline (ApiKey, JSON logs, Dockerfile). Бизнес-логика (Document/Statement/Inspector/Backfill) — следующая сессия. Cron 10:00 МСК ежедневно у mail-stack, compliance-logic пока запускается вручную (systemd unit — pending)
 - Production-код: https://github.com/ciriycpro/Compliance-Assistant
+- Языковая раскладка: Python (mail-stack AI/ML), Go (orchestrator/state plumbing), Java (business tier на Spring), Node.js (Agent Caller transport)
 
 ### `test/` — учебная песочница
 Не использовать. Тестовые DSL-файлы.
 
-## Текущий фокус (16.05.2026)
+## Текущий фокус (23.05.2026)
 
-- **Tairov в production**: Compliance Assistant работает. Orchestrator v1.2.2 + state-service v1.0 + 5 микросервисов на coo. Cron 10:00 МСК ежедневно, кнопка у Таирова активна.
-- **Production-код**: зеркало в отдельном репо `ciriycpro/Compliance-Assistant` — для AI-сессий доступен код всех 7 сервисов параллельно с архитектурой.
-- **Следующее**: DEC-026 multi-tenant (параллельный mail-service для второго клиента), DEC-023 Compliance Logic Layer (Spring Boot business-tier).
+- **Mail-stack v1.2.2 в production**: 7 микросервисов на coo + Cron 10:00 МСК ежедневно + кнопка on-demand у пользователя
+- **Compliance Logic Layer v0.0.1-SNAPSHOT**: 8-й сервис, Spring Boot 3.5 + Java 21 + Postgres 15 + Liquibase. Каркас + security baseline (ApiKey, JSON logs, Dockerfile) + первая entity Client. Скелет работает на coo, бизнес-логика в следующих сессиях
+- **DEC-023 + DEC-025 + Blueprint Сценарий 0 закреплены**: Document master-сущность + Statement/Contract/Act как специализации, BackfillService control plane на Spring + data plane через orchestrator, source-of-truth = наша БД (152-ФЗ ready)
+- **Production-код**: зеркало в `ciriycpro/Compliance-Assistant` — теперь 8 сервисов параллельно с архитектурой
+- **Следующее**:
+  - **Production-blocker**: systemd unit для compliance-logic (после reboot coo сейчас не поднимется)
+  - **Бизнес-функциональность**: Document entity + Statement + POST /compliance-event + Inspector + Backfill для Сценария 0
+  - **DEC-026 multi-tenant** при приходе второго клиента
 
 ## Контекст работы с архитектурой
 

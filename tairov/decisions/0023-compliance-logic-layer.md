@@ -573,6 +573,134 @@ Orchestrator (Go) ──POST /compliance-event──→ compliance-logic (Java)
 - **Hibernate Envers и Liquibase сосуществование** — Envers создаёт `*_AUD` таблицы автоматом, Liquibase про них не знает. Решение: либо `org.hibernate.envers.audit_strategy=org.hibernate.envers.strategy.DefaultAuditStrategy` + позволить Hibernate автогенерить, либо явно описать `*_AUD` в Liquibase. Финализируется при первом миграционном файле
 - **Связь с state-service v2** — нужен ли Spring tier'у прямой доступ к state-service или достаточно через orchestrator. Принципиально: state-service остаётся **infra-tool** (DEC-021), не должен зависеть от Spring tier. Spring tier может писать **свой** state в Postgres напрямую
 
+## Implementation Notes (v0.0.1-SNAPSHOT, 23.05.2026)
+
+Прогресс кода: 22.05.2026 22:00 — 23.05.2026 (текущая сессия). Репо: `Compliance-Assistant/compliance-logic/`. Реализован каркас + первая entity, но **бизнес-функциональности (Statement/Inspector/Scheduler/Backfill) пока нет**. Это база для последующих коммитов.
+
+### Что реализовано
+
+**Инфраструктура (22.05.2026 22:00-22:25):**
+
+| Компонент | Версия | Статус |
+|---|---|---|
+| Java | OpenJDK 21.0.10 | Production-ready на coo |
+| Maven | 3.6.3 + wrapper 3.9.x | Wrapper берёт свежий Maven |
+| Postgres | 15.18 | На coo, БД `compliance`, пользователь `compliance_app` |
+| Spring Boot | 3.5.0 | На момент начала актуальный (3.4.0 не поддерживается, потолок 4.0.6) |
+| Hibernate ORM | 6.6.15.Final | Из Spring Boot 3.5.0 BOM |
+| Liquibase | 4.x (из Spring Boot BOM) | XML changelogs, формат `4.27.xsd` |
+
+**Security baseline (23.05.2026 09:00-09:30, коммит `793a703`):**
+
+| Что | Где реализовано | DEC-ссылка |
+|---|---|---|
+| Listen только 127.0.0.1 | `application.properties: server.address=${SERVER_ADDRESS:127.0.0.1}` | DEC-017 Уровень 0 |
+| Graceful shutdown | `server.shutdown=graceful` + `lifecycle.timeout-per-shutdown-phase=20s` | DEC-007 правило 7 |
+| API-Key middleware | `ApiKeyFilter.java` — OncePerRequestFilter с constant-time compare | DEC-017 Уровень 1 |
+| Constant-time auth check | `MessageDigest.isEqual` (защита от timing attacks) | DEC-017 |
+| Whitelist для health | `/actuator/health`, `/actuator/info` без auth (мониторинг) | DEC-017 |
+| 401 JSON + WARN-log | Через ApiKeyFilter при отсутствии/неверном ключе | DEC-017 audit |
+| Open-in-View отключён | `spring.jpa.open-in-view=false` | Spring best practice |
+
+**JSON structured logging (23.05.2026, в `793a703`):**
+
+| Компонент | Что |
+|---|---|
+| `logback-spring.xml` | LogstashEncoder, MDC slots: trace_id, span_id, client_inn |
+| Custom field | `service:"compliance-logic"` для SIEM-агрегации |
+| Зависимость | `net.logstash.logback:logstash-logback-encoder:8.0` |
+| Готовность к tracing | MDC slots уже подключены — заработают при включении OpenTelemetry на v2.5 |
+
+**Docker artifacts (23.05.2026, в `793a703`):**
+
+| Файл | Состояние |
+|---|---|
+| `Dockerfile` (multi-stage builder + runtime) | Готов, но не собран |
+| `.dockerignore` | Готов |
+| `eclipse-temurin:21-jre-alpine` runtime | Non-root user `compliance` |
+| HEALTHCHECK через `/actuator/health` | Зафиксирован в Dockerfile |
+| Триггер сборки образа | Откладывается по DEC-007 (RAM на coo впритык, в v1.0 systemd достаточно) |
+
+**Client entity + CRUD (23.05.2026 11:00-11:30, коммит `31ea6aa`):**
+
+| Файл | Содержит |
+|---|---|
+| `registry/Client.java` | JPA entity. UUID PK, ИНН (`@NotBlank @Size(min=10, max=12)` unique), full_name, phone, status enum, `@PrePersist`/`@PreUpdate` для timestamps |
+| `registry/ClientStatus.java` | enum ACTIVE / INACTIVE, хранится как STRING |
+| `registry/ClientRepository.java` | extends `JpaRepository<Client, UUID>`, методы `findByInn` + `existsByInn` |
+| `registry/ClientController.java` | POST `/clients` (201 + DTO, 409 на дубль, 400 на валидацию), GET `/clients/{id}` (200/404). Inner records `ClientCreateRequest` + `ClientResponse` |
+| `db/changelog/changes/0001-create-clients.xml` | Liquibase migration. Таблица `clients` со всеми колонками, индексы `idx_clients_inn`, `idx_clients_status` |
+| `db/changelog/db.changelog-master.xml` | Master changelog с `<include>` на migration 0001 |
+
+### Smoke test результаты (23.05.2026 11:21)
+
+**Полный сквозной production-цикл прошёл успешно:**
+
+| Шаг | Результат |
+|---|---|
+| Maven сборка | BUILD SUCCESS за 5-12 сек (incremental кэш) |
+| Spring старт | 14.7-17.8 секунд |
+| HikariPool подключение к Postgres | < 1 сек |
+| Liquibase применение Changeset 0001-create-clients | 208 ms |
+| Tomcat embedded на 127.0.0.1:8771 | OK |
+| Health endpoint без ключа | HTTP 200 (whitelist) |
+| Metrics без ключа | HTTP 401 + WARN-лог |
+| Metrics с правильным ключом | HTTP 200 |
+| Metrics с неверным ключом | HTTP 401 |
+| **POST /clients создание Таирова** | **HTTP 201**, реальный UUID `54e21d1a-ec55-4f8c-b4ed-18b8698e16fe` |
+| Запись в БД | 1 строка, все колонки на месте, auto-generated timestamps |
+| Дубль по ИНН | HTTP 409 |
+| Невалидный ИНН (3 символа) | HTTP 400 (Bean Validation) |
+| **JSON-логи валидны** | Парсятся `python -m json.tool`, поле `service` на месте |
+
+### Метрики производительности (на e2-small, 2 GB RAM)
+
+| Метрика | Значение |
+|---|---|
+| Jar size | 60 МБ (fat-jar со всеми зависимостями) |
+| Maven кэш `~/.m2/repository` | 103 МБ |
+| Spring Boot RSS | 287-294 МБ |
+| Spring старт | 14-17 сек |
+| Postgres idle | ~30 МБ overhead |
+| coo total RAM after Spring | 580-850 МБ used, 1.2 GB available (запас комфортный) |
+
+### Что НЕ реализовано на v0.0.1-SNAPSHOT (отложено)
+
+- ❌ **Document master-entity** — следующий шаг, для master-таблицы документов
+- ❌ **Statement / Contract / Act / MoneyOperation entities** — специализации Document
+- ❌ **Inspector + Scheduler** — основная бизнес-логика DEC-023 v1.0
+- ❌ **POST /compliance-event endpoint** — главный приёмник от orchestrator
+- ❌ **BackfillService control plane** — для Сценария 0 v1.5
+- ❌ **systemd unit** — сервис пока запускается вручную `java -jar ... &`. Это блокер на v1.0 production (после reboot coo не поднимется)
+- ❌ **Reconciler / Outbox / State machines** — v2.0
+- ❌ **Document Classifier** — v1.1
+- ❌ **OpenAPI 3 spec через springdoc** — зависимость не подключена пока (добавим при первом cross-service вызове)
+- ❌ **OpenTelemetry tracing** — v2.5
+- ❌ **Hibernate Envers `@Audited`** — пока ddl-auto=validate работает, при включении Envers потребуется отдельная Liquibase миграция для `*_AUD` таблиц
+
+### Коммиты в Compliance-Assistant
+
+| Коммит | Описание |
+|---|---|
+| `d090ffe` | Spring Boot 3.5.0 skeleton (Initializr, Maven Wrapper, pom.xml, application.properties) |
+| `793a703` | Security baseline + JSON logs + Dockerfile (4 micro-step: A конфиг, B ApiKeyFilter, C logback-spring.xml, D Dockerfile+.dockerignore) |
+| `31ea6aa` | Client entity + ClientRepository + ClientController + Liquibase migration 0001 + master changelog |
+
+### Архитектурный долг по этому этапу
+
+- **systemd unit отсутствует** — первый production-блокер для v1.0
+- **БД в коде только Client** — фактический Registry v1.0 минимум должен иметь Document + Statement + StatementGap + ComplianceEvent. Реализация в следующих коммитах
+- **Springdoc OpenAPI не подключён** — нужен при cross-service вызовах от orchestrator
+- **Деплой-скрипт** — нужно автоматизировать build → copy jar → systemctl restart. Сейчас manual
+
+### Следующая сессия — приоритет
+
+1. Завершить systemd unit (production-blocker)
+2. Document master-entity + Liquibase migration 0002
+3. Statement entity как первая специализация Document
+4. POST /compliance-event endpoint (минимум для приёма от orchestrator)
+5. После этого — Inspector + Scheduler для Сценария 1
+
 ## Roadmap
 
 | Версия | Что | Триггер |

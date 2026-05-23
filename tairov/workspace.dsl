@@ -51,6 +51,14 @@ workspace "Tairov Compliance Helper" "Автоматизация докумен�
             }
 
             controller = container "N8N Контроллер (planned)" "N8N workflow или Python-сервис" "[NOT IMPLEMENTED] Schedule + сверка по ИНН: ищет проблемы no_contract / draft_only / expired. На 09.05.2026 не существует ни в каком виде — ни workflow в N8N, ни cron-задание, ни сервис"
+
+            # === Compliance Logic Layer — business tier (DEC-023, DEC-025) ===
+
+            compliancelogic = container "Compliance Logic v0.0.1-SNAPSHOT" "Java 21 + Spring Boot 3.5.0 + Liquibase + Hibernate, /opt/compliance-logic/" "[SKELETON РАБОТАЕТ c 23.05.2026, бизнес-логика не реализована] coo:8771. Business tier по DEC-022 two-tier. Endpoints на v0.0.1: POST /clients, GET /clients/{id}, /actuator/health. Security: X-API-Key (constant-time compare), bind 127.0.0.1, JSON structured logs (logstash-logback-encoder). Готовый Dockerfile multi-stage + .dockerignore (НЕ собран, по DEC-007 откладывается). RAM 287-294 МБ, jar 60 МБ. Запускается вручную через java -jar (systemd unit pending). Roadmap v1.0: Inspector + Scheduler + Template engine + POST /compliance-event. Roadmap v1.5: BackfillService control plane. См. DEC-023"
+
+            postgres = container "PostgreSQL 15.18" "Postgres 15.18 + Liquibase migrations, БД compliance, пользователь compliance_app" "[РАБОТАЕТ c 22.05.2026] coo:5432 (bind 127.0.0.1). Источник правды для Registry (Client, Document, Statement, Contract, Act, ComplianceEvent, BackfillJob, ReconciliationFlag). На v0.0.1: 3 таблицы (clients + databasechangelog + databasechangeloglock). Liquibase changelog 4.27 формат. Hibernate Envers планируется для audit trail на v1.0. По DEC-017 — данные физически в РФ (152-ФЗ ready)"
+
+            compliancefiles = container "Filesystem Document Storage" "ext4 на coo, /var/lib/compliance-files/<inn>/" "[FOLDER ГОТОВА c 23.05.2026] Хранилище blob-файлов документов (выписки, договоры, акты). Структура: /staging/, /statements/, /contracts/, /acts/, /other/. chmod 700, владелец iakshin77. Метаданные в Postgres (Document table), blob на диске. По DEC-023 + DEC-017 — не зависит от Drive, source-of-truth"
         }
 
         # Связи (Context уровень)
@@ -77,6 +85,16 @@ workspace "Tairov Compliance Helper" "Автоматизация докумен�
         documentoved -> google "Файлы → Drive, поля → Sheets (superseded)" "API"
         controller -> google "Читает Sheets, ищет проблемы (planned)" "API"
         controller -> agentcaller "Триггерит алерт (planned)" "HTTP POST"
+
+        # === Compliance Logic Layer связи (DEC-023, DEC-025) ===
+
+        compliancelogic -> postgres "JPA / Hibernate / Liquibase migrations" "JDBC (Hikari pool)"
+        compliancelogic -> compliancefiles "Запись/чтение blob-файлов документов" "Filesystem (java.nio.file)"
+        orchestrator -> compliancelogic "POST /compliance-event при появлении нового документа (planned v1.0) + POST /admin/backfill для Сценария 0 (planned v1.5)" "HTTP POST"
+        compliancelogic -> orchestrator "POST /backfill/run для запуска workflow backfill (planned v1.5)" "HTTP POST"
+        compliancelogic -> agentcaller "Проактивные алерты Таирову от Inspector/Scheduler (planned v1.0)" "HTTP POST"
+        compliancelogic -> parserservice "Re-parse документа при backfill через orchestrator (planned v1.5)" "HTTP POST"
+        compliancelogic -> summaryservice "Re-summarize / Intent tagging для классификации (planned v1.5)" "HTTP POST"
 
         # Связи (Component уровень внутри Документоведа — все planned)
         ocr -> extract "Передаёт Markdown"
