@@ -20,6 +20,66 @@ Compliance Assistant — это **проактивный stateful автомат
 
 ## Базовые сценарии
 
+### Сценарий 0 — Bootstrap реестра из архива (12 месяцев истории)
+
+**Назначение:** обеспечить бизнес-ценность с первой минуты работы системы. Без bootstrap'а реестр стартует пустым, и Inspector долгое время не может обнаружить пробелы — нет с чем сравнивать. Backfill заполняет реестр историческими данными за 12 месяцев, после чего Inspector с первого cron'а видит полную картину.
+
+**Триггер:** один раз при онбординге клиента (через `POST /admin/backfill`).
+
+**Источники данных (приоритет):**
+
+1. **Файлы на coo** — Артём вручную через `scp` копирует папки с выписками/договорами/актами Таирова в `/var/lib/compliance-files/<inn>/staging/` перед запуском backfill (v1.0 default)
+2. **Drive download** — опционально, если архив изначально в Google Drive. Drive используется как **временный buffer**, не как source-of-truth (см. принципы)
+3. **Email-архив** — не включается на v1.0 (mail-stack обрабатывает только новые письма)
+4. **Telegram-чат** — не существует (бота не было)
+5. **1С** — не подключается на v1.0 (нет коннектора)
+
+**Шаги:**
+
+| # | Что происходит | Компонент | Язык |
+|---|---|---|---|
+| 1 | Артём кладёт файлы в `/var/lib/compliance-files/<inn>/staging/` (scp с локального диска или Drive download) | manual / scp / gcloud | bash |
+| 2 | Артём вызывает `POST /admin/backfill` на Spring tier с параметрами `client_inn, period_start, period_end` | Spring REST | Java |
+| 3 | BackfillService создаёт `BackfillJob` сущность в Registry со статусом `PENDING` | Spring + Registry | Java |
+| 4 | BackfillService делает HTTP POST на orchestrator: `/backfill/run` c `jobId` | Spring HTTP client | Java |
+| 5 | Orchestrator запускает workflow `backfill` — перебирает файлы в staging-папке | Orchestrator | Go |
+| 6 | Для каждого файла orchestrator вызывает parser-service (извлечение текста) | parser-service | Python |
+| 7 | Orchestrator вызывает summary-service с intent-tagging (классификация) | summary-service + Intent Tagger | Python |
+| 8 | Orchestrator формирует `ComplianceEvent` с флагом `historic: true` и `source: BACKFILL` | Orchestrator | Go |
+| 9 | Orchestrator делает `POST /compliance-event` на Spring tier | Orchestrator HTTP client | Go |
+| 10 | Spring tier принимает event, валидирует, Document Classifier определяет тип документа | Spring controller | Java |
+| 11 | Spring tier создаёт `Document` сущность с метаданными + `Statement`/`Contract`/`Act` запись | Registry | Java |
+| 12 | Файл перемещается из `staging/` в постоянное расположение `/var/lib/compliance-files/<inn>/<type>/` | Filesystem | Java |
+| 13 | Reconciler в фоне применяет правила сверки на накопленные данные (по флагу `historic`) | Reconciler | Java |
+| 14 | Orchestrator репортит прогресс через `PATCH /admin/backfill/{jobId}/progress` (например 234/500 processed) | Orchestrator | Go |
+| 15 | Когда все файлы обработаны — orchestrator меняет `BackfillJob.status = COMPLETED` | Spring + Registry | Java |
+| 16 | Reconciler формирует сводный отчёт: «47 операций без оформленных договоров, контрагент X на сумму Y без актов...» | Reconciler + Reporting | Java/Python |
+| 17 | Spring tier отправляет отчёт Таирову через Agent Caller (или ждёт явного запроса) | Scheduler + Agent Caller | Java + Node.js |
+
+**Состояние после Сценария 0:**
+- В Registry: 1 Client, ~50-500 Document'ов, ~50-100 Statement'ов, ~20-50 Contract'ов, ~30-100 Act'ов
+- Все ReconciliationFlag'и поднятые от историч. данных
+- Готовая база для Inspector в Сценарии 1
+- Отчёт Таирову: текущее состояние комплаенса с цифрами
+
+**Принципиальное отличие от Сценария 1:**
+
+| Параметр | Сценарий 0 (Backfill) | Сценарий 1 (Inspector) |
+|---|---|---|
+| Триггер | Однократный, on-demand | Cron + on-demand |
+| Объём | 100-500 документов одной пачкой | 1-10 событий в день |
+| LLM-нагрузка | Высокая (массовая классификация) | Низкая |
+| Реакция Inspector'а | Подавлена по флагу `historic: true` (не алертит) | Активная (запросы Таирову) |
+| Источник | Файлы в staging-папке | Входящие письма |
+| Завершение | `BackfillJob.status = COMPLETED` | Никогда (продолжается циклически) |
+
+**Что Сценарий 0 НЕ делает (явно):**
+
+- ❌ Не отправляет автоматические алерты по historic данным (только сводный отчёт)
+- ❌ Не запрашивает у Таирова новые выписки за период bootstrap'а (он сам положил всё что есть)
+- ❌ Не модифицирует исходные файлы в staging (после копирования в постоянное хранилище)
+- ❌ Не зависит от Drive (Drive — опциональный transport на этапе подготовки staging, не runtime-источник)
+
 ### Сценарий 1 — Поиск пробела в выписках и запрос недостающего периода
 
 **Триггер:** cron Inspector'a (например, 10:00 МСК ежедневно) или on-demand.
@@ -140,17 +200,39 @@ Compliance Assistant — это **проактивный stateful автомат
 
 Все сущности Registry имеют `client_id`. Даже на одном клиенте (Таиров) — фильтрация по `client_id` работает. Приход второго клиента — это конфигурация, не рефакторинг.
 
+### 7. Source of truth — наша БД, не внешний сервис
+
+Postgres на coo + filesystem `/var/lib/compliance-files/<inn>/` — единственный авторитетный источник данных и документов. Внешние источники (Google Drive, email-архив, 1С) — это **transport-механизмы** для bootstrap'а и обмена, но не источник правды. Принципиально:
+
+- 152-ФЗ compliance: ПДн физически в РФ на coo, не у внешних провайдеров
+- Контроль аудита: Hibernate Envers пишет всю историю изменений Registry
+- Backup-стратегия: своя, не зависим от Google/Apple
+- Vendor lock-in: нет (можем сменить любой external transport без миграции данных)
+- Drive — опциональный mirror (опционально синхронизируем туда snapshots для удобства Таирова), не runtime-зависимость
+
+### 8. Контракты "OpenAPI first"
+
+Все внешние HTTP-endpoints Spring tier описаны через OpenAPI 3 (генерация автоматическая через springdoc). Это даёт:
+
+- Документированный контракт между orchestrator и Spring tier
+- Готовность к будущему переходу на gRPC (есть конвертеры OpenAPI → Protobuf)
+- Возможность сгенерировать client-stub'ы для Python/Go без ручной работы
+
+JSON через HTTP RPC сейчас — рабочий выбор. gRPC появится только при триггере (performance bottleneck или строгие типизированные контракты на горизонте roadmap).
+
 ## Что НЕ делает система (явно)
 
 - **Не парсит банковские API** — у МСП этого обычно нет, выписки приходят CSV/XLSX по почте
 - **Не ведёт бухучёт** — это 1С работа, мы потребитель данных из 1С / выписок, не источник
 - **Не подписывает документы** — Таиров подписывает сам (если ЭП — отдельная функция за пределами v1)
 - **Не отправляет** документы внешним контрагентам и банкам — только готовит
+- **Не зависит от Google Drive runtime** — Drive только как опциональный transport для bootstrap
 
 ## Маппинг сценариев на ADR
 
 | Сценарий | Базовый ADR | Связанные ADR |
 |---|---|---|
+| **Сценарий 0 (Bootstrap из архива)** | **DEC-023 v1.5** | **DEC-014 (orchestrator workflow), DEC-022 (two-tier)** |
 | Сценарий 1 (поиск пробела + запрос) | DEC-023 (Compliance Logic) | DEC-022, DEC-025 |
 | Сценарий 2 (приём входящего) | DEC-005, DEC-008, DEC-009, DEC-014 (mail-stack) | DEC-023 (приём compliance-event), DEC-021 (state) |
 | Сценарий 3 (сверка) | DEC-023 (Reconciler) | DEC-025 |
