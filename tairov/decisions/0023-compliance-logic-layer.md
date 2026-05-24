@@ -980,29 +980,116 @@ Spring SSL config:
 
 ### Следующая сессия — приоритет (коммит 3.5 → 3.6 → коммит 4)
 
+(Обновлено 24.05.2026 23:30 МСК: коммит 3.5 закрыт в `d6da726`. См. v0.0.4 ниже.)
+
 **Коммит 3.5 — Реальный массив данных (Google Drive интеграция):**
 
-1. **Google Drive import утилита** — Python скрипт скачивания всего архива Таирова через rclone/gdrive CLI. Складывает в `/var/lib/compliance-files/import/`
-2. **Mass-import в compliance-logic** — bulk POST /documents с дедупом по sha256. Параллельно ~5 worker'ов, retry на 5xx, idempotency check
-3. **Client.monitoring_period_start** — поле в Client entity (`@Column` + миграция 0010). Это **дата с которой Inspector смотрит**. Иначе Inspector увидит «пробелы» в 1995 году
-4. **StatementCalendar entity** — для **ожидаемых периодов**. Без этого Inspector детектит только gaps **между существующими** Statements, не gaps от «нет выписки в апреле вообще». Поле `frequency` (MONTHLY/QUARTERLY/ANNUAL) + auto-generated expected periods на основе monitoring_period_start
+1. ✅ ~~Google Drive import утилита~~ — закрыто (`tools/gdrive-import/import_from_gdrive.py` + README, коммит `d6da726`)
+2. ✅ ~~Mass-import в compliance-logic~~ — закрыто через **POST /admin/backfill** endpoint (правильнее чем bulk POST /documents в цикле). BackfillJob entity + BackfillService + AdminBackfillController
+3. ⏳ **Client.monitoring_period_start** — поле в Client entity (`@Column` + миграция 0011). Перенесено в коммит 3.6
+4. ⏳ **StatementCalendar entity** — для ожидаемых периодов. Перенесено в коммит 3.6
 
 **Коммит 3.6 — Реальный smoke test + ручная верификация:**
 
-5. Загрузка реальных выписок Таирова
-6. Inspector scan → реальные gaps
-7. Ручная верификация (Артём смотрит и подтверждает)
-8. **Инсайты** → коррекция алгоритма (предположительно: edge cases в форматах банков, проблемы с парсингом дат, банки с нестандартной нумерацией периодов)
+5. **Client.monitoring_period_start** + миграция 0011 (перенесено из 3.5)
+6. **StatementCalendar entity** + Inspector v2 (expected periods)
+7. Загрузка реальных выписок Таирова через `import_from_gdrive.py` + rclone (требует `rclone config` интерактивно)
+8. Inspector scan → реальные gaps
+9. Ручная верификация (Артём смотрит и подтверждает)
+10. **Инсайты** → коррекция алгоритма (предположительно: edge cases в форматах банков, проблемы с парсингом дат, банки с нестандартной нумерацией периодов)
 
 **Коммит 4 — Contract + Act + Reconciler + Contract.signingStatus:**
 
-9. Contract entity с **signing_status** enum (DRAFT/SIGNED_ONE_SIDE/SIGNED_BOTH_SIDES/UNCLEAR/DISPUTED), client_signed/counterparty_signed boolean + dates, signature_confidence от vision-LLM
-10. Act entity (специализация Document)
-11. ReconciliationFlag entity (MISSING_CONTRACT/DRAFT_ONLY/EXPIRED/UNSIGNED_ACT/AMOUNT_MISMATCH)
-12. Reconciler сервис — алгоритм сверки MoneyOperation ↔ Contract + Act
-13. Spring Statemachine для Statement.status + Contract.status lifecycle
+11. Contract entity с **signing_status** enum (DRAFT/SIGNED_ONE_SIDE/SIGNED_BOTH_SIDES/UNCLEAR/DISPUTED), client_signed/counterparty_signed boolean + dates, signature_confidence от vision-LLM
+12. Act entity (специализация Document)
+13. ReconciliationFlag entity (MISSING_CONTRACT/DRAFT_ONLY/EXPIRED/UNSIGNED_ACT/AMOUNT_MISMATCH)
+14. Reconciler сервис — алгоритм сверки MoneyOperation ↔ Contract + Act
+15. Spring Statemachine для Statement.status + Contract.status lifecycle
 
 Это **первая бизнес-ценность с реальным эффектом** — система обрабатывает реальные данные клиента и выдаёт реальные инсайты.
+
+## Implementation Notes (v0.0.4-SNAPSHOT, 24.05.2026 23:30 МСК)
+
+Прогресс кода: 24.05.2026 21:00 — 24.05.2026 23:30 (текущая сессия). 
+
+### Что реализовано в v0.0.4 (коммит `d6da726` в Compliance-Assistant)
+
+**BackfillJob — batch-импорт исторических документов (DEC-023 v1.5):**
+
+| Файл | Назначение |
+|---|---|
+| `registry/BackfillJob.java` | Entity с `@Audited`, FK на Client, source_path varchar(500), status enum (PENDING/RUNNING/COMPLETED/FAILED), 5 счётчиков (total/processed/created/skipped/failed_files), 3 timestamps, error_message |
+| `registry/BackfillJobStatus.java` | enum |
+| `registry/BackfillJobRepository.java` | 3 метода поиска (findByClientId, findByClientIdAndStatus, findByStatus) |
+| `0010-create-backfill-jobs.xml` | Таблица + 3 индекса + audit таблица backfill_jobs_aud |
+| `service/BackfillService.java` | **Синхронный batch-импорт**: createJob (PENDING) → runJob (walk файлы → DocumentService.createFromBytes → COMPLETED). Прогресс update каждые 10 файлов. Exception per file → failed++ (не останавливает батч). 5 типизированных исключений. Конфиг `backfill.enabled` через @Value |
+| `service/BackfillService.validateSourcePath()` | **Whitelist `/var/lib/compliance-files/import`** + Path.toRealPath() для защиты от symlink-attack |
+| `registry/AdminBackfillController.java` | POST /admin/backfill (синхронный), GET /admin/backfill/{jobId}, GET /clients/{clientId}/backfill-jobs |
+| `service/DocumentService.createFromBytes()` | Новый метод для batch — принимает byte[] + filename + mimeType вместо MultipartFile. Возвращает null для дубля (skip-логика backfill) |
+
+**GlobalExceptionHandler полная пересборка:**
+
+Унифицированный `@ControllerAdvice` с 7 handlers:
+- **400**: InvalidSourcePathException, IllegalArgumentException
+- **404**: 16 *NotFoundException всех Service-классов
+- **409**: Duplicate*Exception + IllegalBackfillStateException
+- **422**: Invalid*/OutOfRange + DataIntegrityViolationException
+- **503**: BackfillDisabledException
+
+Все возвращают унифицированный JSON `{error, message, timestamp}`.
+
+**GDrive Import Utility (`tools/gdrive-import/`):**
+
+| Файл | Назначение |
+|---|---|
+| `import_from_gdrive.py` | Python скрипт ~250 строк. rclone copy → `/var/lib/compliance-files/import/gdrive-<ts>/`, walk файлов с sha256 hashing, ThreadPoolExecutor 5 workers, retry с exponential backoff (2s/4s/8s), tqdm прогресс-бар, идемпотентный (sha256 дедуп на сервере) |
+| `README.md` | Пошаговая инструкция rclone config + параметры |
+
+### Production smoke test (4/4 прошли)
+
+| Тест | Результат |
+|---|---|
+| Первый backfill synthetic dir (3 файла) | HTTP 201 COMPLETED, created=3, skipped=0, failed=0, duration=781ms |
+| Envers ревизии в backfill_jobs_aud | rev 102 (revtype=0 PENDING) → rev 103 (revtype=1 COMPLETED) |
+| **Идемпотентность**: повторный backfill той же папки | HTTP 201 COMPLETED, **created=0, skipped=3** ✅ |
+| Path traversal /tmp → 400 invalid_source_path | "source path должен быть под /var/lib/compliance-files/import, получено: /tmp" |
+| Path traversal /etc → 400 invalid_source_path | Path.toRealPath() резолвит, проверяет prefix |
+
+БД счётчики: documents 33→36 (после 1-го backfill), 36 без изменений (после идемпотентного 2-го), backfill_jobs=2, backfill_jobs_aud=4 ревизии.
+
+### Архитектурное замечание: systemd PrivateTmp ≠ shell /tmp
+
+**Important learning:** systemd `PrivateTmp=true` (security hardening) изолирует `/tmp` сервиса от shell сессии. Spring видит **свой** изолированный /tmp, не shared с пользователем.
+
+**Initial мисдизайн:** whitelist разрешал `/tmp/gdrive-import-*` — но Spring сервис не видел директорию из shell сессии (BackfillService.validateSourcePath падал с `path не существует`).
+
+**Корректное решение:** убрали `/tmp` из whitelist полностью. Все import staging складываются в `/var/lib/compliance-files/import/` (под существующий PVC + systemd ReadWritePaths). Утилита `import_from_gdrive.py` обновлена для использования этого пути.
+
+**Архитектурно правильно**: persistence staging на PVC, не на ephemeral /tmp. Соответствует DEC-016 (K8s manifests) + DEC-007 (Docker-friendly).
+
+### Метрики прогресса
+
+| Метрика | v0.0.3 | v0.0.4 | Δ |
+|---|---|---|---|
+| Java строк | ~4000 | ~4900 | +900 |
+| REST endpoints | 23 | 26 | +3 |
+| Service классов | 8 | 9 | +1 |
+| Entity | 7 | 8 | +1 (BackfillJob) |
+| Audit таблицы | 7 + revinfo | 8 + revinfo | +1 (backfill_jobs_aud) |
+| GlobalExceptionHandler types | 16 | 24 | +8 |
+| Python tooling | 0 | 1 утилита (~250 строк) | +1 |
+| RSS памяти Spring | 217-347 МБ | стабильно | без изменения |
+
+### Закрытый архитектурный долг
+
+- ✅ GDrive import утилита (🔴 #19 SECURITY_DEBT) — закрыто
+- ✅ GlobalExceptionHandler для всех business exceptions — закрыто (24 типа exceptions покрыты)
+
+### Новый долг (открыт в этом коммите)
+
+- 🟡 systemd PrivateTmp vs Spring import staging — задокументировано через переезд на /var/lib/compliance-files/import/
+- 🟡 Backfill graceful shutdown (cancel running job при SIGTERM)
+- 🟡 Backfill rate limiting per-client (предотвращение DDoS через большой массив)
 
 ## Roadmap
 
