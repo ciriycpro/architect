@@ -854,13 +854,155 @@ Orchestrator (Go) ──POST /compliance-event──→ compliance-logic (Java)
 
 ### Следующая сессия — приоритет (коммит 3)
 
-1. **StatementGap entity** + Liquibase migration 0008 (для Inspector)
-2. **ComplianceEvent entity** + Liquibase migration 0009 (для приёма событий от orchestrator)
-3. **POST /compliance-event endpoint** — главный приёмник от orchestrator с idempotency по event_id
-4. **Inspector сервис + Scheduler** — основная бизнес-логика. Поиск пробелов в Statement.period_start/end по client_id + bank_id. Создание StatementGap. Логирование (без алерта Таирову пока)
-5. **Smoke test полного бизнес-цикла**: загрузка 2-3 выписок Таирова с пробелом → Inspector детектит gap → запись в БД
+(Обновлено 24.05.2026 21:00 МСК: коммит 3 закрыт в `bdcb5d4`, см. v0.0.3 ниже. Архитектурно — между коммитом 3 и 4 теперь два этапа реальных данных.)
 
-**Это первая бизнес-ценность** — система реально решает задачу клиента.
+1. ✅ ~~StatementGap entity~~ — закрыто (коммит `bdcb5d4`)
+2. ✅ ~~ComplianceEvent entity~~ — закрыто (коммит `bdcb5d4`)
+3. ✅ ~~POST /compliance-event endpoint~~ — закрыто с idempotency
+4. ✅ ~~Inspector + Scheduler~~ — закрыто, но **на пластмассовых данных**
+5. ✅ ~~Smoke test полного бизнес-цикла~~ — пройден на synthetic Statement
+
+## Implementation Notes (v0.0.3-SNAPSHOT, 24.05.2026 21:00 МСК)
+
+Прогресс кода: 24.05.2026 19:14 — 24.05.2026 21:00 (текущая сессия). 
+
+### Что реализовано в v0.0.3 (коммит `bdcb5d4` в Compliance-Assistant)
+
+**Inspector — детектирование пробелов в выписках:**
+
+| Файл | Назначение |
+|---|---|
+| `registry/StatementGap.java` | Entity с `@Audited`, FK на Client + Counterparty(bank), status enum (DETECTED/REQUEST_SENT/RECEIVED/CLOSED), gap_start/end + detected_at + lastRequestAt + closedAt |
+| `registry/StatementGapStatus.java` | enum |
+| `registry/StatementGapRepository.java` | 5 методов: findByClientId (Page), findByClientIdAndStatus, findByClientIdAndBankId (List), findByClientIdAndBankIdAndGapStartAndGapEnd, findByStatus |
+| `0008-create-statement-gaps.xml` | Таблица + 5 индексов + UNIQUE constraint на (client_id, counterparty_id, gap_start, gap_end) + audit таблица statement_gaps_aud |
+| `service/StatementGapInspectorService.java` | **Алгоритм поиска пробелов**: scanAllActiveClients() → scanClient(id) → для каждого банка отсортированные Statements → парные сравнения если daysBetween(period_end[i], period_start[i+1]) > 1 → createGapIfNotExists (idempotent через unique constraint). Records ScanResult/ClientScanResult с метриками. Transactional на весь scan |
+| `service/InspectorScheduler.java` | `@Scheduled` cron-job, конфиг inspector.statement-gaps.cron=0 0 10 * * * (10:00 UTC ежедневно). @EnableScheduling в ComplianceLogicApplication. Все исключения ловятся (cron не должен останавливаться) |
+| `registry/AdminInspectorController.java` | 3 endpoint: POST /admin/inspector/scan-now?clientId=X, GET /clients/{clientId}/statement-gaps (с фильтром по status), GET /statement-gaps/{id} |
+
+**ComplianceEvent — приём событий от orchestrator:**
+
+| Файл | Назначение |
+|---|---|
+| `registry/ComplianceEvent.java` | Entity с `@Audited`, JSONB payload (JsonNode), event_id UNIQUE для idempotency, trace_id, processed_at/processing_error |
+| `registry/EventSource.java` | enum EMAIL/BACKFILL/MANUAL |
+| `registry/ComplianceEventRepository.java` | 6 методов: findByEventId, existsByEventId, findByClientInn (Page), findByClientInnAndEventType, findByTraceId, findByProcessedAtIsNull |
+| `0009-create-compliance-events.xml` | Таблица + 7 индексов + UNIQUE на event_id + audit таблица compliance_events_aud |
+| `service/ComplianceEventService.java` | ingest() с **idempotency check** (existing event_id → возврат IngestResult с alreadyExisted=true). markProcessed/markFailed для будущего processing. Полное логирование (event_id, trace_id, type, client_inn, source, historic) |
+| `registry/ComplianceEventController.java` | POST /compliance-event (HTTP 201 если создан, HTTP 200 если idempotency hit), GET /compliance-events/{eventId}, GET /clients/{clientInn}/compliance-events (с фильтром по eventType) |
+
+**mTLS infrastructure (DEC-017 Уровень 1):**
+
+Internal CA создан на coo:
+- `/etc/compliance-tls/ca/ca.key` (4096 RSA, chmod 600)
+- `/etc/compliance-tls/ca/ca.crt` (10 лет, chmod 644)
+- **CA Fingerprint SHA256**: `AD:E6:4E:6E:0F:E6:83:28:54:D6:E2:A8:F0:53:0A:7D:2C:16:26:6F:3C:E1:67:92:11:59:EE:78:B5:A2:A7:8F`
+
+Server cert для compliance-logic:
+- `/etc/compliance-tls/compliance-logic/compliance-logic.p12` (PKCS12 keystore)
+- `/etc/compliance-tls/compliance-logic/compliance-truststore.p12` (PKCS12 truststore с CA)
+- SAN: compliance-logic.local + 3 DNS (K8s FQDN) + localhost + 127.0.0.1
+- Extended Key Usage: serverAuth + clientAuth
+
+Spring SSL config:
+- `server.ssl.enabled=true`, `server.ssl.client-auth=want` (опциональный client cert — fallback на API-key для текущих клиентов)
+- `server.ssl.enabled-protocols=TLSv1.2,TLSv1.3`
+- Passwords в env (`SSL_KEYSTORE_PASSWORD`, `SSL_TRUSTSTORE_PASSWORD`), значение `changeit` для dev
+
+**Spring теперь HTTPS на 127.0.0.1:8771**. Plain HTTP на этом порту отбит (HTTP 400 на TLS-handshake-only порт).
+
+**K8s manifests (DEC-016 — намерение для будущей миграции):**
+
+`deploy/kubernetes/compliance-logic/` — 8 файлов:
+- `namespace.yaml` — compliance-assistant namespace
+- `configmap.yaml` — non-secret config (URLs, ports, logging)
+- `secret.yaml.template` — шаблон Secret (POSTGRES_PASSWORD + API_KEY с PLACEHOLDER_BASE64)
+- `pvc.yaml` — PVC 50Gi для `/var/lib/compliance-files/`
+- `deployment.yaml` — 1 replica recreate, **security context строжайший** (non-root, readOnlyRootFilesystem, drop ALL capabilities, allowPrivilegeEscalation: false), health/readiness probes через Spring Actuator, resource requests/limits
+- `service.yaml` — ClusterIP на 8771
+- `network-policy.yaml` — **deny-by-default**, только orchestrator → compliance-logic, egress Postgres + DNS
+- `README.md` — структура + применение + готовность
+
+**Backup стратегия (DEC-017 Operational):**
+
+- `/usr/local/bin/compliance-backup.sh` — tar.gz `/var/lib/compliance-files/` + pg_dump через gzip
+- Хранение: `/var/backups/compliance/`
+- Ротация: 14 дней через find -mtime
+- Логи в syslog через `logger`
+- Cron: `0 3 * * *` (3:00 ежедневно)
+- Тестовый запуск прошёл (2 файла созданы, sql + tar)
+
+**GlobalExceptionHandler:**
+
+Добавлен `@ExceptionHandler(DataIntegrityViolationException.class)` → HTTP 422 (Unprocessable Entity) с JSON `{error, message, timestamp}`. До этого CHECK constraint violations возвращали 500 (default Spring).
+
+### Production smoke test (6/6 прошли + idempotency + Envers + gap detection)
+
+| Что | Результат |
+|---|---|
+| Spring HTTPS health | HTTP 200 (через `curl --cacert /etc/compliance-tls/ca/ca.crt`) |
+| POST /compliance-event новый event_id | HTTP 201, alreadyExisted=false, payload JSONB сохранён в БД |
+| Повторный POST того же event_id | HTTP 200, alreadyExisted=true (**idempotency работает**) |
+| Inspector scan на Таирове с 1 statement | banksScanned=3, gapsFound=0 (правильно — нужно ≥2 statements чтобы был gap) |
+| Inspector scan после создания synthetic Statement июнь 2026 | banksScanned=3, gapsFound=1, gapsCreated=1 — **детектил пробел май 2026** |
+| Envers audit на statement_gaps_aud | rev=55, revtype=0 (INSERT), полный snapshot создания |
+
+### Метрики прогресса
+
+| Метрика | v0.0.2 | v0.0.3 | Δ |
+|---|---|---|---|
+| Java строк | ~2600 | ~4000 | +1400 |
+| REST endpoints | 17 | 23 | +6 |
+| Service классов | 5 | 8 | +3 |
+| Entity | 5 | 7 | +2 |
+| Audit таблицы | 5 + revinfo | 7 + revinfo | +2 |
+| Бизнес-валидации | 8 | 10 | +2 |
+| Cron jobs | 0 | 1 (Inspector daily) | +1 |
+| K8s manifests | 0 | 8 yaml | +8 |
+| mTLS infrastructure | ❌ | ✅ server-side готов | — |
+| Backup стратегия | ❌ | ✅ cron + ротация 14 дней | — |
+| RSS памяти Spring | 200-329 МБ | 217-347 МБ | стабильно |
+| Jar size | 63 МБ | ~65 МБ | +2 МБ (нет новых dependencies) |
+| Старт Spring | 14-17 сек | 14-17 сек | без изменения |
+
+### Закрытый архитектурный долг
+
+- ✅ GlobalExceptionHandler DataIntegrityViolationException → 422 (🔴 #2 SECURITY_DEBT)
+- ✅ Backup стратегия (🔴 #3 SECURITY_DEBT — закрыто)
+- ✅ K8s manifests как намерение (🟡 #5-7 SECURITY_DEBT — закрыто)
+- ✅ mTLS server side infrastructure (🟡 #8 SECURITY_DEBT — закрыто частично, client-side для других сервисов остаётся открытым)
+
+### Архитектурное замечание: «пластмассовость» v0.0.3
+
+Все smoke tests коммита 3 проходили на **синтетических данных** (1 клиент Таиров, 1 искусственная Statement, 1 искусственная gap). Это **рабочий скелет**, не работающий продукт.
+
+**До коммита 4 (Contract + Reconciler) добавлены 2 промежуточных этапа** для подключения реального массива данных Таирова. См. «Следующая сессия» ниже.
+
+### Следующая сессия — приоритет (коммит 3.5 → 3.6 → коммит 4)
+
+**Коммит 3.5 — Реальный массив данных (Google Drive интеграция):**
+
+1. **Google Drive import утилита** — Python скрипт скачивания всего архива Таирова через rclone/gdrive CLI. Складывает в `/var/lib/compliance-files/import/`
+2. **Mass-import в compliance-logic** — bulk POST /documents с дедупом по sha256. Параллельно ~5 worker'ов, retry на 5xx, idempotency check
+3. **Client.monitoring_period_start** — поле в Client entity (`@Column` + миграция 0010). Это **дата с которой Inspector смотрит**. Иначе Inspector увидит «пробелы» в 1995 году
+4. **StatementCalendar entity** — для **ожидаемых периодов**. Без этого Inspector детектит только gaps **между существующими** Statements, не gaps от «нет выписки в апреле вообще». Поле `frequency` (MONTHLY/QUARTERLY/ANNUAL) + auto-generated expected periods на основе monitoring_period_start
+
+**Коммит 3.6 — Реальный smoke test + ручная верификация:**
+
+5. Загрузка реальных выписок Таирова
+6. Inspector scan → реальные gaps
+7. Ручная верификация (Артём смотрит и подтверждает)
+8. **Инсайты** → коррекция алгоритма (предположительно: edge cases в форматах банков, проблемы с парсингом дат, банки с нестандартной нумерацией периодов)
+
+**Коммит 4 — Contract + Act + Reconciler + Contract.signingStatus:**
+
+9. Contract entity с **signing_status** enum (DRAFT/SIGNED_ONE_SIDE/SIGNED_BOTH_SIDES/UNCLEAR/DISPUTED), client_signed/counterparty_signed boolean + dates, signature_confidence от vision-LLM
+10. Act entity (специализация Document)
+11. ReconciliationFlag entity (MISSING_CONTRACT/DRAFT_ONLY/EXPIRED/UNSIGNED_ACT/AMOUNT_MISMATCH)
+12. Reconciler сервис — алгоритм сверки MoneyOperation ↔ Contract + Act
+13. Spring Statemachine для Statement.status + Contract.status lifecycle
+
+Это **первая бизнес-ценность с реальным эффектом** — система обрабатывает реальные данные клиента и выдаёт реальные инсайты.
 
 ## Roadmap
 
