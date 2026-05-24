@@ -1091,6 +1091,107 @@ Spring SSL config:
 - 🟡 Backfill graceful shutdown (cancel running job при SIGTERM)
 - 🟡 Backfill rate limiting per-client (предотвращение DDoS через большой массив)
 
+## Implementation Notes (v0.0.5-SNAPSHOT, 25.05.2026 00:00 МСК)
+
+Прогресс кода: 24.05.2026 23:30 — 25.05.2026 00:00 (текущая сессия). 
+
+### Что реализовано в v0.0.5 (коммит `5dfd6dc` в Compliance-Assistant)
+
+**D — Client.monitoring_period_start (SECURITY_DEBT #17):**
+
+| Файл | Назначение |
+|---|---|
+| `registry/Client.java` | Поле `monitoringPeriodStart` (LocalDate, nullable) + getter/setter |
+| `0011-add-client-monitoring-period.xml` | ALTER TABLE clients ADD COLUMN + то же для clients_aud (Envers) |
+
+Таирову установлен `monitoring_period_start = 2025-04-01`.
+
+Inspector использует это поле как нижнюю границу:
+```
+effectiveStart = max(client.monitoring_period_start, calendar.start_period, today - 12 months)
+```
+
+**E — StatementCalendar entity (SECURITY_DEBT #18):**
+
+| Файл | Назначение |
+|---|---|
+| `registry/StatementFrequency.java` | enum (MONTHLY/QUARTERLY/ANNUAL) |
+| `registry/StatementCalendar.java` | Entity @Audited: FK на Client + FK на Counterparty (bank), frequency, start_period (LocalDate), active boolean. Unique constraint (client_id, bank_id, frequency) — нельзя 2 MONTHLY на один банк |
+| `registry/StatementCalendarRepository.java` | 3 метода поиска (active клиента, по client+bank+freq, все по client+bank) |
+| `0012-create-statement-calendars.xml` | Таблица + 3 индекса + unique constraint + audit таблица statement_calendars_aud |
+| `service/StatementCalendarService.java` | create/listForClient/findById/deactivate. 4 типизированных exceptions (ClientNotFoundException, BankNotFoundException, CalendarNotFoundException, DuplicateCalendarException) |
+| `registry/StatementCalendarController.java` | POST/GET /clients/{id}/statement-calendars, GET/DELETE /statement-calendars/{id} (soft-delete = active=false) |
+
+**Inspector v2 — calendar-based scan:**
+
+Метод `scanCalendarsForClient(client)` добавлен в StatementGapInspectorService:
+- Получает все active StatementCalendar клиента
+- Для каждого calendar:
+  - `effectiveStart = max(monitoring_period_start, calendar.start_period, today - 12 months)`
+  - Генерирует expected periods от `effectiveStart` до `today` с шагом по frequency
+  - Для каждого периода проверяет: есть ли Statement покрывающий его?
+  - Если не covered → `createGapIfNotExists` (идемпотентность через unique constraint)
+- Шаг между периодами: MONTHLY → +1 month, QUARTERLY → +3 months, ANNUAL → +1 year
+
+Existing метод `scanClient()` расширен: после между-Statement gaps вызывается `scanCalendarsForClient`, результаты аккумулируются в общие счётчики.
+
+**GlobalExceptionHandler:** +4 типа exceptions (28 общих типов).
+
+### Production smoke test (6/6 прошли)
+
+| Тест | Результат |
+|---|---|
+| Liquibase 0011-1 + 0011-2 + 0012-1 + 0012-2 | All ran successfully |
+| POST calendar Таиров+Сбер MONTHLY 2025-04-01 | 201 Created + UUID |
+| **Идемпотентность**: повторный POST | 409 conflict с понятным сообщением |
+| GET список календарей клиента | 1 активный календарь |
+| Inspector scan-now (после создания calendar) | gapsFound=13, gapsCreated=11, duration=339ms |
+| Финальная БД: 12 gaps в statement_gaps | 2025-05..2025-12 + 2026-01..2026-03 + 2026-05 (всё что не покрыто 2026-04 + 2026-06 Statement) |
+
+**Проверка edge cases:**
+- April 2026 покрыт Statement → НЕ создан gap ✅
+- June 2026 в будущем (`periodEnd > today`) → break logic работает, НЕ создан gap ✅
+- 12-month look-back применился — Inspector не пошёл дальше 2025-05 (хотя monitoring_period_start = 2025-04-01) ✅
+
+### Метрики прогресса
+
+| Метрика | v0.0.4 | v0.0.5 | Δ |
+|---|---|---|---|
+| Java строк | ~4900 | ~5500 | +600 |
+| REST endpoints | 26 | 30 | +4 (statement-calendars) |
+| Service классов | 9 | 10 | +1 (StatementCalendarService) |
+| Entity | 8 | 9 | +1 (StatementCalendar) |
+| Audit таблицы | 8 + revinfo | 9 + revinfo | +1 (statement_calendars_aud) |
+| GlobalExceptionHandler types | 24 | 28 | +4 |
+| БД таблицы (всего) | 17 | 19 | +2 |
+
+### Закрытый архитектурный долг
+
+- ✅ 🔴 #17 Client.monitoring_period_start — закрыто
+- ✅ 🔴 #18 StatementCalendar entity — закрыто
+
+### Архитектурный сдвиг: Inspector переходит от reactive к expected
+
+До v0.0.5 Inspector детектил только **gaps между существующими Statements** (если есть Apr и Jun, найдёт пробел в May). Не мог найти **expected but missing** — если у Таирова нет ни одной выписки за весь 2025 год, Inspector ничего бы не нашёл.
+
+В v0.0.5 через StatementCalendar Inspector **знает что ожидать** — за каждый месяц (или квартал) от `monitoring_period_start` ждёт выписку. Это превращает Inspector из "сравнителя двух соседних выписок" в "аудитора по графику". Соответствует роли **#1 Inspector** в архитектурном workflow Артёма (см. user notes).
+
+### Что НЕ реализовано (out of scope для v0.0.5, но в roadmap)
+
+- **#3 Scheduler/Planner** — gap создан, но никто не пишет Таирову. Это коммит 5+ через outbound через Agent Caller.
+- **#9 Intent Classifier** — type документа сейчас передаётся в request. Автоклассификация — отдельный коммит.
+- **#13 Reconciler** — коммит 4.
+- **Реальная выкачка данных Таирова с GDrive** — `rclone config` + `import_from_gdrive.py`. Отдельная сессия.
+
+### Следующая сессия — коммит 4 (Contract + Reconciler)
+
+1. **Contract entity** с signing_status enum (DRAFT/SIGNED_ONE_SIDE/SIGNED_BOTH_SIDES/UNCLEAR/DISPUTED), client_signed/counterparty_signed boolean + dates, signature_confidence от vision-LLM
+2. **Act entity** (специализация Document)
+3. **ReconciliationFlag entity** (MISSING_CONTRACT/DRAFT_ONLY/EXPIRED/UNSIGNED_ACT/AMOUNT_MISMATCH)
+4. **Reconciler сервис** — алгоритм сверки MoneyOperation ↔ Contract + Act
+5. **Spring Statemachine** для Statement.status + Contract.status lifecycle
+6. **Inspector timezone fix** (#21 — добавить inspector.timezone=Europe/Moscow)
+
 ## Roadmap
 
 | Версия | Что | Триггер |
