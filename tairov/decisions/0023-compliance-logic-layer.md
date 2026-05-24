@@ -695,11 +695,172 @@ Orchestrator (Go) ──POST /compliance-event──→ compliance-logic (Java)
 
 ### Следующая сессия — приоритет
 
-1. Завершить systemd unit (production-blocker)
-2. Document master-entity + Liquibase migration 0002
-3. Statement entity как первая специализация Document
-4. POST /compliance-event endpoint (минимум для приёма от orchestrator)
-5. После этого — Inspector + Scheduler для Сценария 1
+(Обновлено 24.05.2026: пункты 1-3 закрыты в v0.0.2, см. ниже. Следующая сессия фокусируется на бизнес-ценности.)
+
+1. ✅ ~~Завершить systemd unit~~ — закрыто 23.05.2026 (см. ниже)
+2. ✅ ~~Document master-entity + Liquibase migration 0002~~ — закрыто 23.05.2026 (коммит `8a828c8`)
+3. ✅ ~~Statement entity как первая специализация Document~~ — закрыто 24.05.2026 (коммит `ad29636`)
+4. ⏳ POST /compliance-event endpoint (минимум для приёма от orchestrator)
+5. ⏳ Inspector + Scheduler для Сценария 1 — основная бизнес-ценность v1.0
+
+## Implementation Notes (v0.0.2-SNAPSHOT, 24.05.2026)
+
+Прогресс кода: 23.05.2026 18:00 — 24.05.2026 19:14 (текущая сессия). 
+
+### Что реализовано в v0.0.2
+
+**Service слой (ReestrService pattern из DEC-023):**
+
+| Файл | Назначение |
+|---|---|
+| `service/ClientService.java` | Управление клиентами + `updateStatus()` для lifecycle |
+| `service/CounterpartyService.java` | Управление контрагентами + `changeTrustLevel(reason)` с записью причины в notes для audit |
+| `service/DocumentService.java` | Orchestrate storage + дедуп + transactional cleanup blob при exception |
+| `service/StatementService.java` | Управление выписками + 4 валидации (period_end >= period_start, document.type == STATEMENT, дубль документа, FK) |
+| `service/MoneyOperationService.java` | Управление операциями + 3 валидации (amount > 0, parsing_confidence ∈ [0..1], operation_date в period statement) + методы `linkToContract`/`linkToAct`/`findUnlinkedForClient` для Reconciler v2.0 |
+
+**Controllers рефакторинг:** 706 строк → 408 строк (-42%). Логика перенесена в Service (659 строк бизнес-логики).
+
+**Web layer:**
+
+| Файл | Назначение |
+|---|---|
+| `web/GlobalExceptionHandler.java` | `@ControllerAdvice` — типизированные Service-исключения → HTTP коды. NotFound→404, Duplicate*→409, Invalid*/OutOfRange→422. JSON response: `{error, message, timestamp}` |
+
+**Entity Counterparty (новый):**
+
+| Файл | Что |
+|---|---|
+| `registry/Counterparty.java` | UUID PK, FK на Client, ИНН, name, trust_level enum (TRUSTED/NEUTRAL/FLAGGED), notes |
+| `registry/CounterpartyTrustLevel.java` | enum |
+| `registry/CounterpartyRepository.java` | findByClientIdAndInn, existsByClientIdAndInn, findByClientIdAndTrustLevel |
+| `0003-create-counterparties.xml` | таблица + 3 индекса + UNIQUE (client_id, inn) |
+
+**Entity Statement (специализация Document):**
+
+| Файл | Что |
+|---|---|
+| `registry/Statement.java` | UUID PK, OneToOne на Document (UNIQUE), ManyToOne на Counterparty (банк), period_start/end, amount_total, operation_count, currency, status enum |
+| `registry/StatementStatus.java` | enum RECEIVED/PARSED/VERIFIED/FLAGGED |
+| `registry/StatementRepository.java` | findByDocumentId, findByClientIdAndBankId, findByClientIdAndPeriod (для Inspector) |
+| `0004-create-statements.xml` | таблица + 5 индексов (документ, клиент, банк, period composite, status) + UNIQUE document_id |
+
+**Entity MoneyOperation (операции из выписки):**
+
+| Файл | Что |
+|---|---|
+| `registry/MoneyOperation.java` | UUID PK, FK на Statement/Client/Counterparty(nullable). Парадигма raw + parsed + linked: raw поля (counterparty_inn/name_raw), parsed (contract_number, contract_date, invoice_number, subject, subject_category, quantity, unit, vat_amount, confidence), linked (linked_contract_id, linked_act_id nullable UUID для Reconciler) |
+| `registry/OperationDirection.java` | enum DEBIT/CREDIT |
+| `registry/MoneyOperationRepository.java` | 5 методов включая findByClientIdAndLinkedContractIdIsNull (для Reconciler) |
+| `0005-create-money-operations.xml` | таблица + 8 индексов |
+
+**Hibernate Envers audit trail (DEC-017 Уровень 1 closed):**
+
+| Что | Где |
+|---|---|
+| Dependency `org.hibernate.orm:hibernate-envers` | pom.xml (BOM version, без явной версии для compatibility с Hibernate 6.6) |
+| `@Audited` annotation | На 5 entity (Client, Counterparty, Document, Statement, MoneyOperation) |
+| Envers конфиг | application.properties: audit_table_suffix=_aud, revision_field_name=rev, revision_type_field_name=revtype, store_data_at_delete=true |
+| `0006-create-envers-audit-tables.xml` | revinfo + sequence (incrementBy=50 для эффективности batch резервирования) + 5 audit таблиц с PK (id, rev), FK rev→revinfo |
+
+**CHECK constraint (DEC-017 Уровень 0):**
+
+| Что | Где |
+|---|---|
+| `0007-add-category-check-constraint.xml` | CHECK на money_operations.parsed_subject_category — разрешены только: GOODS, SERVICES, RENT, SALARY, TAX, LOAN, TRANSFER, OTHER (+NULL) |
+
+**Документация:**
+
+| Файл | Что |
+|---|---|
+| `SECURITY_DEBT.md` | 16 пунктов архитектурного долга в 3 приоритетах (🔴 Critical, 🟡 Medium, 🟢 Low). Каждый с триггером закрытия + ссылкой на DEC |
+
+### Production smoke test (10/10 прошли + 3 security проверки)
+
+| Что | Результат |
+|---|---|
+| Spring через systemd | active running, PID 1018384, RSS 200 МБ |
+| Health endpoint | HTTP 200 |
+| Таблицы в БД | 13 (6 бизнес + 5 audit + revinfo + 2 liquibase) |
+| Существующие данные не потеряны | Таиров + 2 counterparties + 1 statement + 2 operations через все рестарты |
+| Создание Counterparty + автоматический audit | revtype=0 INSERT в counterparties_aud, revinfo с timestamp |
+| **Envers revinfo: 2 ревизии** (Альфа-Банк + RENT-операция) | ✅ |
+| Service бизнес-валидации | amount=0 → 422, parsing_confidence>1 → 422, operation_date вне периода → 422, period_end<start → 422 |
+| GlobalExceptionHandler | JSON {error, message, timestamp} на всех типизированных exceptions |
+| Дубль counterparty по ИНН | HTTP 409 с детальным сообщением |
+| **CHECK constraint** | INVALID_CATEGORY → 500 (DB rejection), RENT → 201 ✅ |
+
+### Метрики
+
+| Метрика | v0.0.1 | v0.0.2 | Δ |
+|---|---|---|---|
+| Java строк | ~600 | ~2600 | +2000 |
+| REST endpoints | 4 (Client + Document) | 17 (Client + Counterparty + Document + Statement + MoneyOperation CRUD) | +13 |
+| Service классов | 0 | 5 | +5 |
+| Entity | 2 | 5 | +3 |
+| Audit таблицы | 0 | 5 + revinfo | +6 |
+| Бизнес-валидации | 1 (BV @Size@NotBlank) | 8 (BV + 7 Service-level) | +7 |
+| RSS памяти | 287-294 МБ | 200-329 МБ | стабильно |
+| Старт Spring | 14-17 сек | 14-17 сек | без изменения |
+| Jar size | 60 МБ | 63 МБ | +3 МБ (envers) |
+
+### Что НЕ реализовано в v0.0.2 (отложено в SECURITY_DEBT.md)
+
+**🔴 Critical (закроем перед production):**
+- Шифрование blob at-rest через `age` (DEC-017 L2)
+- GlobalExceptionHandler для `DataIntegrityViolationException` (CHECK violation → 422 вместо 500)
+- Backup стратегия для `/var/lib/compliance-files/`
+- Contract entity со SigningStatus (запланировано в коммит 4)
+
+**🟡 Medium:**
+- K8s manifests + PVC + NetworkPolicy
+- mTLS между сервисами
+- Vault для secrets
+- Springdoc OpenAPI 3 spec
+
+**🟢 Low:**
+- OpenTelemetry tracing (v2.5)
+- gRPC миграция (v5.0)
+- Spring Statemachine для lifecycle Statement
+- CounterpartyClassifier agent (LLM)
+
+### Коммиты в Compliance-Assistant
+
+| Коммит | Описание |
+|---|---|
+| `d090ffe` | Spring Boot 3.5.0 skeleton |
+| `793a703` | Security baseline + JSON logs + Dockerfile |
+| `31ea6aa` | Client entity + Liquibase migration 0001 + REST CRUD |
+| `8a828c8` | **Коммит 1**: Document master + Storage + REST CRUD + Security Layer 0 (Bucket4j rate limit + CORS + Transactional orphan fix) |
+| `ad29636` | **Коммит 2**: Service слой + Counterparty + Statement + MoneyOperation + Envers audit + CHECK constraints |
+
+### Архитектурный долг по этому этапу
+
+**Закрыто в v0.0.2:**
+- ✅ systemd unit (hardened) — closed 23.05.2026
+- ✅ Document master entity — closed 23.05.2026
+- ✅ ReestrService pattern (Service слой) — closed 24.05.2026
+- ✅ Envers audit trail — closed 24.05.2026
+- ✅ Бизнес-валидации в Service слое — closed 24.05.2026
+- ✅ GlobalExceptionHandler — closed 24.05.2026
+- ✅ CHECK constraint на category — closed 24.05.2026
+- ✅ SECURITY_DEBT.md документация — closed 24.05.2026
+
+**Остаётся (в SECURITY_DEBT.md):**
+- ❌ POST /compliance-event endpoint — для коммита 3 или 5
+- ❌ Inspector + Scheduler — для коммита 3
+- ❌ Reconciler — для коммита 4 (Contract + ReconciliationFlag)
+- ❌ Backfill — для коммита 5
+
+### Следующая сессия — приоритет (коммит 3)
+
+1. **StatementGap entity** + Liquibase migration 0008 (для Inspector)
+2. **ComplianceEvent entity** + Liquibase migration 0009 (для приёма событий от orchestrator)
+3. **POST /compliance-event endpoint** — главный приёмник от orchestrator с idempotency по event_id
+4. **Inspector сервис + Scheduler** — основная бизнес-логика. Поиск пробелов в Statement.period_start/end по client_id + bank_id. Создание StatementGap. Логирование (без алерта Таирову пока)
+5. **Smoke test полного бизнес-цикла**: загрузка 2-3 выписок Таирова с пробелом → Inspector детектит gap → запись в БД
+
+**Это первая бизнес-ценность** — система реально решает задачу клиента.
 
 ## Roadmap
 
