@@ -1,6 +1,6 @@
 # 9. Summary-service: Claude Haiku 4.5 для ежедневного дайджеста
 
-Date: 2026-05-12
+Date: 2026-05-12 (refreshed 2026-05-25)
 
 ## Status
 
@@ -171,7 +171,7 @@ OpenRouter поддерживает алиасы `~anthropic/claude-haiku-latest
 - Fallback на DeepSeek закрывает риск недоступности
 
 **Минусы:**
-- 5× дороже самого дешёвого варианта в абсолюте (но 20 руб/мес — pet money)
+- 5× дороже самого дешёвого варианта в абсолюте (но 20 руб/мес — несущественная статья OpEx)
 - Зависимость от Anthropic API (через OpenRouter) — если OpenRouter упадёт, fallback ещё одной модели тоже через OpenRouter. Митигация v2: добавить прямой Anthropic API endpoint как третий уровень fallback
 - Лицензионных рисков (как с AGPL у PyMuPDF) — нет, это commercial API
 

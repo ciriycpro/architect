@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted (13.05.2026). **v1.0 Implemented 13.05.2026 (15:13-15:57 UTC, ~45 минут)**. **v1.1 Implemented 13.05.2026 (вечер)** — Telegram-кнопка через Agent Caller callback + Multi-mailbox в mail-service + product-grade WA-skip для on-demand workflow. v2 (Temporal) и v3 (KAMF) — открытые направления с явными триггерами и обоснованием.
+Accepted (13.05.2026, refreshed 2026-05-25). **v1.0 Implemented 13.05.2026 (15:13-15:57 UTC, ~45 минут)**. **v1.1 Implemented 13.05.2026 (вечер)** — Telegram-кнопка через Agent Caller callback + Multi-mailbox в mail-service + product-grade WA-skip для on-demand workflow. v2 (Temporal) и v3 (KAMF) — открытые направления с явными триггерами и обоснованием.
 
 ## Context
 
@@ -84,7 +84,7 @@ v3 (3-6 месяцев)  → KAMF runtime с StateGraph (когда фреймв
   - 500+ МБ RAM (worker + scheduler + webserver + Postgres + Redis для Celery)
   - DAG-парадигма для batch jobs, не для webhook-driven workflows
   - Over-engineering для 4-сервисного стека
-  - Без data engineering background — выглядит как «один раз попробовать»
+  - Airflow в нашем сетапе — over-investment в инструмент data engineering при отсутствии batch ETL-нагрузки
 - **Отложено на v3** для ML/data pipelines (training classifier, fine-tuning) когда появятся реальные batch jobs. Не для оркестрации mail-stack.
 
 **3. Custom Python orchestrator (asyncio).**
@@ -99,7 +99,7 @@ v3 (3-6 месяцев)  → KAMF runtime с StateGraph (когда фреймв
 - Плюсы: production-grade durable execution с первого дня
 - Минусы:
   - Не успеваем к демо вечером 13.05 (требуется ~6-8 часов: инфраструктура + Temporal SDK + переписать на workflow-парадигму)
-  - Сложность обучения SDK без готового прототипа кода
+  - Внедрение Temporal SDK требует предварительного прототипирования workflow-парадигмы — не успеваем к демо
 - **Отложено на v2.** Триггер — реальная необходимость durable execution (regulatory audit, 5+ workflow, recovery после рестарта).
 
 **5. KAMF сразу на v1.**

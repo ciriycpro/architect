@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted (23.05.2026). Конкретное технологическое решение для **business-tier** (см. DEC-022, DEC-025). Реализация v1.0 — на горизонте 1-2 недель.
+Accepted (23.05.2026). Конкретное технологическое решение для **business-tier** (см. DEC-022, DEC-025). Реализация v1.0 в активной разработке (см. Implementation Notes v0.0.5-SNAPSHOT от 25.05.2026).
 
 ## Context
 
@@ -561,9 +561,9 @@ Orchestrator (Go) ──POST /compliance-event──→ compliance-logic (Java)
   - Митигация: каждый сервис самодостаточен, единый стиль systemd + JSON-логов
 - ❌ **JVM прожорлив по RAM** — 300-500 МБ на Spring Boot сервис + 150-300 МБ на Postgres = +500-800 МБ к текущей нагрузке
   - Текущий coo (e2-small, 2 GB): уже впритык. Решение принято: ставим как есть, при OOM апгрейд e2-medium (+$4/мес)
-- ❌ **Кривая освоения Spring Boot** — несколько недель плотной работы для разработчика без Java-опыта
-  - Митигация: v1.0 минимальный (Registry + Inspector + Scheduler + 1 endpoint). Без Statemachine/AAA/Outbox/Security
-- ❌ **N+1 queries и lazy loading** — типичные грабли JPA для новичков
+- ❌ **Onboarding Spring Boot-стека на проект** — несколько недель плотной работы до production-готовности v1
+  - Митигация: v1.0 минимальный scope (Registry + Inspector + Scheduler + 1 endpoint). StateMachine/AAA/Outbox/Security вынесены в последующие версии
+- ❌ **N+1 queries и lazy loading** — классические JPA-грабли, требующие явного контроля на ранней стадии
   - Митигация: ставим Hibernate `@EnableJpaRepositories(considerNestedRepositories=false)`, на debug-логах ловим N+1 в early stage
 
 ### Открытые вопросы
