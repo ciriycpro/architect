@@ -1,2 +1,6 @@
 .DS_Store
 */.structurizr/
+
+# Structurizr Lite автогенерирует workspace.json из workspace.dsl при запуске.
+# Canon = только DSL. JSON не коммитим, чтобы избежать расхождений с DSL.
+**/workspace.json
