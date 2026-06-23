@@ -15,7 +15,7 @@ workspace "Compliance Assistant" "Автоматизация документо�
         messengers = softwareSystem "Telegram + WhatsApp + Email" "Каналы доставки алертов" "External"
 
         # Главная система
-        compliance = softwareSystem "Compliance Helper" "Контур автоматической сверки документооборота на coo.gcp" {
+        compliance = softwareSystem "Compliance Assistant" "Контур автоматической сверки документооборота на coo.gcp (DEC-0023, DEC-0025)" {
 
             # === Реально работающие компоненты на 12.05.2026 ===
 
@@ -27,17 +27,17 @@ workspace "Compliance Assistant" "Автоматизация документо�
             # Прод (12-13.05.2026): mailservice, attachmentservice, parserservice, summaryservice, orchestrator
             # На v1.1: multi-account email + Telegram-кнопка через Agent Caller
 
-            mailservice = container "Mail Service v1" "Python 3.11 + FastAPI + systemd, /opt/mail-stack/mail-service/" "[РАБОТАЕТ В ПРОД c 12.05.2026, contract update 13.05] coo:8765. Endpoints /health и /mail/since/<YYYY-MM-DDTHH:MM>?limit=50 (date+time precision с пост-фильтрацией по времени для DEC-013 на v2). Docker-friendly код, env-конфиг в /etc/mail-stack/. RAM 39 МБ. DEC-007"
+            mailservice = container "Mail Service v1.2" "Python 3.11 + FastAPI + systemd, /opt/mail-stack/mail-service/" "[РАБОТАЕТ В ПРОД, server.py 02.06.2026] coo:8765. Endpoints /health и GET /mail/since/<YYYY-MM-DDTHH:MM>?label=&group=&limit=50. Real label/group routing (DEC-0022): label=X → точечный ящик, group=Y → набор, иначе default. MAILBOXES_JSON в env. Docker-friendly, env в /etc/mail-stack/. RAM 39 МБ. DEC-007 + DEC-0022 + DEC-0027"
 
             # === Планируется к реализации в составе mail-stack (DEC-008, DEC-009, DEC-010) ===
 
-            attachmentservice = container "Attachment Service v1" "Python 3.11 + FastAPI + systemd, /opt/mail-stack/attachment-service/" "[РАБОТАЕТ В ПРОД c 12.05.2026] coo:8766. Endpoint POST /download — скачивание вложения по messageId+filename. Хранилище /var/lib/mail-stack/attachments/<messageId>/<filename>. Кэш через FS (idempotent, ускорение ~130×). RAM 28 МБ. DEC-011"
+            attachmentservice = container "Attachment Service v1.1" "Python 3.11 + FastAPI + systemd, /opt/mail-stack/attachment-service/" "[РАБОТАЕТ В ПРОД, label/group fix 07.06.2026] coo:8766. Endpoint POST /download — скачивание вложения по messageId+filename+label+group. _imap_find_message фильтрует MAILBOXES по label/group (DEC-0022 parity к mail-service). Хранилище /var/lib/mail-stack/attachments/<messageId>/<filename>. FS-кэш idempotent. RAM 28 МБ. DEC-011 + DEC-0022"
 
-            parserservice = container "Parser Service v1" "Python 3.10 + FastAPI + systemd, библиотеки L1-L14, /opt/mail-stack/parser-service/" "[РАБОТАЕТ В ПРОД c 13.05.2026] coo:8767. Endpoint POST /parse — детерминированный роутер по MIME + per-page роутинг внутри PDF. Реализованы все 8 веток L1-L14 (TXT/CSV/JSON/XML/HTML/DOCX/XLSX/PDF/JPG). pdf-inspector работает через detect_pdf_bytes(). LLM-vision Qwen3-VL primary + Qwen 2.5 VL fallback. RAM 38 МБ idle, 86 МБ после первого PDF. DEC-008"
+            parserservice = container "Parser Service v1.1" "Python 3.10 + FastAPI + systemd, библиотеки L1-L14, /opt/mail-stack/parser-service/" "[РАБОТАЕТ В ПРОД, /parse-statement добавлен 02.06.2026] coo:8767. Endpoints: POST /parse (общий L1-L14 роутер) + POST /parse-statement (детерминированный pipeline для банковских выписок). Модули: statement_parser.py (ВТБ/Альфа PDF), statement_xlsx.py (только ВТБ — Альфа-xlsx Open #2). pdf-inspector через detect_pdf_bytes(). LLM-vision Qwen3-VL primary + Qwen 2.5 VL fallback. RAM 38 МБ idle / 86 МБ. DEC-008 + DEC-024 + DEC-0027 + DEC-0028 (/parse-document planned)"
 
             summaryservice = container "Summary Service v1" "Python 3.11 + FastAPI + systemd, Claude Haiku 4.5 + DeepSeek-chat fallback, /opt/mail-stack/summary-service/" "[РАБОТАЕТ В ПРОД c 13.05.2026] coo:8768. Endpoint POST /summary — массив писем с распарсенными вложениями → JSON с двумя форматами (summary_markdown для Sheets + summary_telegram до 1000 символов). Промпт v2 с живым разговорным тоном (Anthropic XML-tags, few-shot, action verbs). RAM 30.6 МБ. Stateless. Цена ~$0.005/дайджест. DEC-009"
 
-            orchestrator = container "Orchestrator v1.0 (Go custom)" "Go 1.22 + net/http + robfig/cron + slog + caarlos0/env + uuid, /opt/mail-stack/orchestrator/" "[РАБОТАЕТ В ПРОД c 13.05.2026 15:57] coo:8769. Triggers: Schedule (cron, disabled на v1.0) + Webhook /digest-now + /check-mail (заглушка для v2). Координирует цепочку: mail → attachment → parser → summary → WhatsApp pre-alert → Telegram delivery. Structured logs (slog JSON) с trace_id UUID v7. Auth: X-API-Key constant-time compare. Rate limit token bucket. Path traversal validation. RAM 10 МБ (минимальный в стеке!). Workflow 12s без WA / 93s с WA. ~1100 строк production-Go + 380 тестов. Спроектирован для миграции на Temporal headless v2 → KAMF v3 (80%+ кода переиспользуется)"
+            orchestrator = container "Orchestrator v1.2.2 (Go custom)" "Go 1.22 + net/http + robfig/cron + slog + caarlos0/env + uuid, /opt/mail-stack/orchestrator/" "[РАБОТАЕТ В ПРОД, strings → orchestrator-v1.2] coo:8769. В проде workflow email_digest_v1 (Mail Reader дайджест). Endpoints: POST /digest-now, POST /check-mail, GET /health, GET /metrics. Cron c для дайджеста по ORCHESTRATOR_SCHEDULE. State через state-service. X-Trace-Id во все исходящие активити (mail/parser/summary/attachment/notify). Structured logs slog JSON. Auth X-API-Key, rate limit token bucket. RAM 10 МБ. ~1100 строк production-Go + 380 тестов. В working tree (НЕ задеплоено): второй cron c2 + workflow statement_vacuum_v1.go + activity ingest.go + label-проброс через MailboxLabel='compliance-5458508' (DEC-0027 Go-half). env-заготовка STATEMENT_VACUUM_SCHEDULE + COMPLIANCE_LOGIC_URL/API_KEY/CA_CERT. См. DEC-0014 Implementation Notes v1.3-prep"
 
             # === Документовед v2 — заменяется горизонтальным стеком mail-stack ===
 
@@ -54,9 +54,19 @@ workspace "Compliance Assistant" "Автоматизация документо�
 
             # === Compliance Logic Layer — business tier (DEC-023, DEC-025) ===
 
-            compliancelogic = container "Compliance Logic v0.0.5-SNAPSHOT" "Java 21 + Spring Boot 3.5.0 + Liquibase + Hibernate + Envers, /opt/compliance-logic/" "[РАБОТАЕТ c 23.05.2026, 6 коммитов: 8a828c8 → 5dfd6dc на 25.05.2026 00:00 МСК] coo:8771 (HTTPS mTLS server-side via internal CA). 30 REST endpoints, 10 Service-классов, 9 entity + Envers audit (9 *_aud таблиц + revinfo). БД: 19 таблиц. Реализовано: Client/Counterparty/Document/Statement/MoneyOperation/StatementGap/ComplianceEvent/BackfillJob/StatementCalendar (полный Service+REST). Inspector v2 (calendar-based scan): expected periods через StatementCalendar + между-Statement gaps. BackfillService: POST /admin/backfill для batch-импорта (sha256 дедуп). GlobalExceptionHandler: 7 handlers покрывают 28 типов exceptions. K8s manifests готовы. Security: X-API-Key + mTLS server-side + Bucket4j rate limit + path whitelist + Envers audit. systemd Backup cron + ротация 14 дней. RAM 217-347 МБ, jar 60 МБ. К коммиту 4: Contract + Act + Reconciler + Spring Statemachine. См. DEC-023 Implementation Notes v0.0.5"
+            compliancelogic = container "Compliance Logic v0.0.7-SNAPSHOT" "Java 21 + Spring Boot 3.5.0 + Liquibase + Hibernate + Envers, /opt/compliance-logic/" "[РАБОТАЕТ c 23.05.2026, jar собран 04.06.2026 — Commit 4 (31.05) + Commit 5 (02-03.06)] coo:8771 (HTTPS mTLS server-side via internal CA). ~46 REST endpoints, 17 Service-классов, 14 entity + Envers audit (13 *_aud + revinfo, notifications append-only). БД: 29 таблиц, 23 миграции Liquibase. Сервисы: Document/Statement/MoneyOperation/Counterparty/Client + Inspector v2 + Reconciler + Backfill + StatementIngestService + GapAlertOrchestrator + OrchestratorScheduler + NotificationService + HttpCallerClient (CallerPort) + CounterpartyNameNormalizer. Production state: clients=2, counterparties=34, documents=39, statements=6, money_operations=936, reconciliation_flags=26 (MISSING_CONTRACT), notifications=38, statement_gaps=23, contracts=0, acts=0. К Phase 1 DEC-0028: правки Reconciler/ContractService/Repository в working tree (не задеплоены). См. DEC-0023 Implementation Notes v0.0.6+v0.0.7 и DEC-0027/0028" {
+                registry = component "Registry Services" "Spring @Service" "Client/Tenant/Counterparty/Document/Statement/MoneyOperation/Contract/Act CRUD + nameNormalizer (DEC-0023 v0.0.2-v0.0.6)"
+                inspector = component "InspectorService + Scheduler" "Spring @Service + @Scheduled" "Calendar-based gap detection (v2). scanClient(clientId) синхронно после StatementIngest. Cron в Europe/Moscow (DEC-0023 v0.0.5)"
+                reconciler = component "ReconcilerService + Scheduler" "Spring @Service + @Scheduled 10:30 MSK" "Сверка MoneyOperation↔Contract по основанию (regex от purpose). rescanAll + rescanForContract post-ingest hook (DEC-0023 v0.0.6 + DEC-0028 Phase 1 в working tree)"
+                statementingest = component "StatementIngestService" "Spring @Service" "POST /statements/ingest (multipart file+meta) → Document/Statement/MoneyOperation атомарно + sha256-dedup + inspectorService.scanClient sync. Точка входа для DEC-0027 statement-vacuum (DEC-0023 v0.0.7)"
+                gapalert = component "GapAlertOrchestrator" "Spring @Service" "Алёрт-loop по statement_gaps с SQL-фильтром по flag_type (точка расширения для DEC-0028 MISSING_ACT). reminder_interval_hours + max_reminders + last_request_at lifecycle (DEC-0023 v0.0.7)"
+                orchscheduler = component "OrchestratorScheduler" "Spring @Scheduled INSPECTOR_STATEMENT_GAPS_CRON (16:30 MSK default)" "Запускает GapAlertOrchestrator по cron из env. Отдельный scheduler от ReconcilerScheduler (DEC-0023 v0.0.7)"
+                notification = component "NotificationService" "Spring @Service" "CRUD + write-API audit-журнала исходящих алёртов (channel/recipient/payload/status/sent_at/trace_id). 38 записей в проде (DEC-0023 v0.0.7)"
+                httpcaller = component "HttpCallerClient (CallerPort impl)" "Java 21 HttpClient" "Транспорт WA/TG к agent-caller :3000. Таймаут 120с (300с в working tree — DEC-0027 Open #3 fix). X-API-Key, structured logging (DEC-0023 v0.0.7)"
+                backfill = component "BackfillService" "Spring @Service" "POST /admin/backfill для batch-импорта (sha256 дедуп). GDrive→PostgreSQL (DEC-0023 v0.0.4)"
+            }
 
-            postgres = container "PostgreSQL 15.18" "Postgres 15.18 + Liquibase migrations, БД compliance, пользователь compliance_app" "[РАБОТАЕТ c 22.05.2026] coo:5432 (bind 127.0.0.1). Источник правды для Registry. На v0.0.5: 19 таблиц = 9 бизнес (clients, counterparties, documents, statements, money_operations, statement_gaps, compliance_events, backfill_jobs, statement_calendars) + 9 audit (*_aud через Envers) + revinfo + 2 liquibase. ~107 Envers ревизий. 12 миграций Liquibase 4.27. Hibernate Envers @Audited на всех entity. По DEC-017 — данные физически в РФ (152-ФЗ ready). Backup cron на coo с ротацией 14 дней. Зависимости от reorganization будущих коммитов: Contract + Act + ReconciliationFlag в коммите 4, OpenTelemetry + Vault в коммите 5+"
+            postgres = container "PostgreSQL 15.18" "Postgres 15.18 + Liquibase migrations, БД compliance, пользователь compliance_app" "[РАБОТАЕТ c 22.05.2026] coo:5432 (bind 127.0.0.1). Источник правды для Registry. На v0.0.7: 29 таблиц = 14 бизнес (clients, tenants, counterparties, documents, statements, money_operations, contracts, acts, reconciliation_flags, statement_gaps, statement_calendars, compliance_events, backfill_jobs, notifications) + 13 audit (*_aud через Envers, кроме notifications append-only) + revinfo + 2 liquibase. 23 миграции Liquibase 4.27 (последняя 0023-2-add-statement-account-aud, 02.06.2026 19:25 UTC). Hibernate Envers @Audited. По DEC-017 — данные физически в РФ (152-ФЗ ready). Backup cron на coo с ротацией 14 дней"
 
             compliancefiles = container "Filesystem Document Storage" "ext4 на coo, /var/lib/compliance-files/<inn>/" "[FOLDER ГОТОВА c 23.05.2026] Хранилище blob-файлов документов (выписки, договоры, акты). Структура: /staging/, /statements/, /contracts/, /acts/, /other/. chmod 700, владелец iakshin77. Метаданные в Postgres (Document table), blob на диске. По DEC-023 + DEC-017 — не зависит от Drive, source-of-truth"
         }
@@ -86,15 +96,14 @@ workspace "Compliance Assistant" "Автоматизация документо�
         controller -> google "Читает Sheets, ищет проблемы (planned)" "API"
         controller -> agentcaller "Триггерит алерт (planned)" "HTTP POST"
 
-        # === Compliance Logic Layer связи (DEC-023, DEC-025) ===
+        # === Compliance Logic Layer связи (DEC-0023, DEC-0025, DEC-0027) — статус 23.06.2026 ===
 
-        compliancelogic -> postgres "JPA / Hibernate / Liquibase migrations" "JDBC (Hikari pool)"
-        compliancelogic -> compliancefiles "Запись/чтение blob-файлов документов" "Filesystem (java.nio.file)"
-        orchestrator -> compliancelogic "POST /compliance-event при появлении нового документа (planned v1.0) + POST /admin/backfill для Сценария 0 (planned v1.5)" "HTTP POST"
-        compliancelogic -> orchestrator "POST /backfill/run для запуска workflow backfill (planned v1.5)" "HTTP POST"
-        compliancelogic -> agentcaller "Проактивные алерты Таирову от Inspector/Scheduler (planned v1.0)" "HTTP POST"
-        compliancelogic -> parserservice "Re-parse документа при backfill через orchestrator (planned v1.5)" "HTTP POST"
-        compliancelogic -> summaryservice "Re-summarize / Intent tagging для классификации (planned v1.5)" "HTTP POST"
+        compliancelogic -> postgres "JPA / Hibernate / Liquibase migrations (23 миграции)" "JDBC (Hikari pool)"
+        compliancelogic -> compliancefiles "Запись/чтение blob-файлов документов (sha256-дедуп)" "Filesystem (java.nio.file)"
+        compliancelogic -> agentcaller "Проактивные алёрты Таирову через GapAlertOrchestrator + HttpCallerClient — WA на :3000 (DEC-0027 в проде, 38 notifications в журнале)" "HTTP POST"
+        orchestrator -> compliancelogic "POST /statements/ingest для DEC-0027 statement-vacuum (workflow в working tree, не задеплоено) + env COMPLIANCE_LOGIC_URL/API_KEY/CA_CERT заготовлены под mTLS" "HTTP POST (mTLS planned)"
+        compliancelogic -> parserservice "Re-parse документа при backfill через orchestrator (planned, не используется в проде)" "HTTP POST"
+        compliancelogic -> summaryservice "Re-summarize / Intent tagging для классификации (planned)" "HTTP POST"
 
         # Связи (Component уровень внутри Документоведа — все planned)
         ocr -> extract "Передаёт Markdown"
@@ -105,12 +114,12 @@ workspace "Compliance Assistant" "Автоматизация документо�
     }
 
     views {
-        systemContext compliance "SystemContext" "Compliance Helper — контекст" {
+        systemContext compliance "SystemContext" "Compliance Assistant — контекст" {
             include *
             autolayout lr
         }
 
-        container compliance "Containers" "Compliance Helper — контейнеры (state 12.05.2026: mail-service v1 in prod, mail-stack под реализацию)" {
+        container compliance "Containers" "Compliance Assistant — контейнеры (state 23.06.2026, после Commit 5 + DEC-0027/0028 ADR)" {
             include *
             autolayout tb
         }
@@ -118,6 +127,11 @@ workspace "Compliance Assistant" "Автоматизация документо�
         component documentoved "DocumentovedComponents" "Документовед — внутренние компоненты (planned, not implemented)" {
             include *
             autolayout lr
+        }
+
+        component compliancelogic "ComplianceLogicComponents" "Compliance Logic — компоненты Java/Spring-tier (DEC-0023 v0.0.7, 23.06.2026)" {
+            include *
+            autolayout tb
         }
 
         styles {
