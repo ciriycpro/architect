@@ -1283,6 +1283,70 @@ Existing метод `scanClient()` расширен: после между-State
 2. Коммит 5 — Outbox + Agent Caller, `DETECTED → REQUEST_SENT`.
 3. Арх-этап «разделение полномочий» (границы сервисов, потоки).
 
+## Implementation Notes (v0.0.7-SNAPSHOT, 02-03.06.2026) — Коммит 5: alert-loop + statement-ingest + tenant-policy + statement-account
+
+Прогресс кода: 01–03.06.2026. Развёрнут на проде coo, jar активен с 04.06.2026 08:36 UTC. Этот коммит замыкает входящий контур со стороны Java и подкладывает фундамент под DEC-0027 statement-vacuum (orchestrator-half в работе, см. DEC-0027 Implementation Notes 23.06.2026).
+
+### Что реализовано в v0.0.7 (миграции 0018–0023)
+
+| Блок | Файлы / суть |
+|---|---|
+| **client-tenant FK** (0019, base+aud) | `Client.tenantId` (UUID FK) + `tenants` table + Envers audit. Подготовка к мультитенантной изоляции (DEC-026) |
+| **statement_gaps расширение** (0020, base+aud) | Поля для алёрт-цикла: `reminder_interval_hours`, `max_reminders`, `last_request_at`, `reminders_sent_count`, `next_request_at`. Полная Envers история |
+| **notifications** (0021, create) | Новая таблица — журнал исходящих алёртов: client_id, channel (WA/TG/EMAIL), recipient, payload, status (PENDING/SENT/FAILED), sent_at, trace_id |
+| **client-contact + tenant-policy** (0022, base+aud + tenant-policy-extend) | `clients.contact_phone` (нормализовано), `clients.contact_label`. Тенант-policy для row-level визуальной изоляции |
+| **statement_account** (0023, base+aud) | `statements.account_number` — банковский номер счёта на выписке. Нужен для `statement_vacuum` идемпотентности и резолва клиента из выписки (DEC-0027) |
+
+### Новые компоненты сервисного слоя
+
+| Компонент | Назначение |
+|---|---|
+| **`StatementIngestService`** | Принимает выписку через `/statements/ingest` (multipart file+meta), создаёт `Document`+`Statement`+`MoneyOperation[]`+counterparty-ы атомарно. sha256-дедуп через `documentService.createFromBytes()`. После ingest → `inspectorService.scanClient(clientId)` синхронно (закрывает gap-ы по факту прихода выписки). Используется orchestrator workflow `statement_vacuum_v1` (in working tree) |
+| **`GapAlertOrchestrator`** | Алёрт-loop по `statement_gaps`: каждые N часов проверяет открытые gaps с `next_request_at <= now`, формирует payload, дёргает `CallerPort.sendWhatsApp(...)`, обновляет `reminders_sent_count` + `next_request_at`, пишет запись в `notifications`. SQL-фильтр по `flag_type IN (...)` — точка расширения (для DEC-0028 MISSING_ACT отсечения) |
+| **`OrchestratorScheduler`** | Spring `@Scheduled` запускает `GapAlertOrchestrator` по cron из env `INSPECTOR_STATEMENT_GAPS_CRON` (default `0 30 13 * * *` UTC = 16:30 МСК). Отдельный scheduler от `ReconcilerScheduler` |
+| **`NotificationService`** | CRUD для `notifications` + write-only API для других сервисов (audit-trail исходящих) |
+| **`HttpCallerClient`** (имплементирует `CallerPort`) | HTTP-клиент к agent-caller на `:3000/send-wa` и `/send-tg`. Таймаут 120с (увеличен до 300с в working tree 12.06 — см. DEC-0027 Open Issue #3, не задеплоено). API key, retry-логика, structured logging |
+
+### Production state (зафиксировано 23.06.2026)
+
+| Метрика | Значение |
+|---|---|
+| `clients` | 2 (Таиров, Веретенникова) |
+| `counterparties` | 34 |
+| `documents` | 39 |
+| `statements` | 6 |
+| `money_operations` | 936 |
+| `reconciliation_flags` | 26 (все MISSING_CONTRACT, DETECTED) |
+| `notifications` | 38 (исходящие WA-алёрты по gap-ам) |
+| `statement_gaps` | 23 (детектированы Inspector v2) |
+| `contracts` | 0 (DEC-0028 не задеплоен) |
+| `acts` | 0 (DEC-0028 Phase 2) |
+| `tenants` | (заполнено в 0019) |
+| Liquibase changesets executed | 23 (последний `0023-2-add-statement-account-aud` 02.06.2026 19:25) |
+
+### Метрики прогресса
+
+| Метрика | v0.0.6 | v0.0.7 | Δ |
+|---|---|---|---|
+| REST endpoints | 40 | ~46 | +6 (statements/ingest, notifications/*, tenant-admin) |
+| Service классов | 13 | 17 | +4 (StatementIngest, GapAlertOrchestrator, Notification, HttpCallerClient) |
+| Entity | 12 | 14 | +2 (Tenant, Notification) |
+| Audit таблицы | 12 + revinfo | 13 + revinfo | +1 (notifications — без audit, append-only) |
+| БД таблицы (всего) | 25 | 29 | +4 (tenants, notifications, statement_calendars расширен, statement_gaps расширен) |
+| Schedulers | 2 | 3 | +1 (OrchestratorScheduler) |
+| Миграции | 0017 | 0023 | +6 |
+
+### Закрытый долг
+
+- ✅ **Коммит 5 (Outbox + алёрт-loop)** — заменён на упрощённую модель без Outbox: прямой `HttpCallerClient.send()` + `notifications` как audit-журнал. Outbox-pattern отложен до момента когда понадобится at-least-once delivery (сейчас at-most-once допустимо для алёртов — повтор через cron).
+- ✅ **statement_account** — закрывает идемпотентность statement_vacuum (DEC-0027 Open #1 частично).
+
+### Открытое (для следующих коммитов)
+
+- DEC-0028 Phase 1 — ингест договоров (см. отдельный ADR).
+- Outbox-pattern — отложено.
+- Multi-channel notification (TG в дополнение к WA) — заготовлен `channel` enum в `notifications`, активация по DEC-018.
+
 ## Roadmap
 
 | Версия | Что | Триггер |

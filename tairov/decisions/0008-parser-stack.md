@@ -222,3 +222,60 @@ Multi-stage с компиляцией Rust внутри Docker (Stage 1: Rust to
 | Per-page роутинг для Mixed PDF | ✅ (фикс по требованию) |
 | pdf-inspector реально работает (не fallback) | ✅ (после фикса API имени) |
 | Открытые v2-вопросы зафиксированы | ✅ |
+
+## Implementation Notes (23.06.2026) — `/parse-statement` endpoint + два модуля
+
+После санации канона зафиксирован новый endpoint и два модуля парсера в `/opt/mail-stack/parser-service/`, развёрнутые 02.06.2026 в рамках DEC-0027 statement-vacuum.
+
+### Новый endpoint: `POST /parse-statement`
+
+Сигнатура (server.py:688-689):
+
+```python
+@app.post("/parse-statement")
+def parse_statement(req: ParseStatementRequest):
+    ...
+```
+
+`ParseStatementRequest` принимает file, mime/extension, `owner_inn` (для резолва клиента из выписки), `account_number` (опционально, для идемпотентности).
+
+Поведение (server.py:677):
+```python
+# Детерминированно: PDF -> statement_parser (ВТБ/Альфа), XLSX -> statement_xlsx (ВТБ).
+```
+
+Возвращает `{bank_name, account_number, period_start, period_end, owner_inn, operations: [...]}` для прямой отдачи в `compliance-logic /statements/ingest`.
+
+### Модуль `statement_parser.py` (6494 байт)
+
+Детерминированный PDF-парсер выписок:
+- **ВТБ:** табличный layout, regex по колонкам, нормализация имён через шаблоны.
+- **Альфа-Банк:** другой layout, тоже regex-based. Реализована.
+
+Определение банка — по сигнатуре PDF (header текста, реквизиты). Класс операций (`OWN_TRANSFER`, `TAX`, `BANK_FEE`, `CARD_ACQUIRING`, `COUNTERPARTY`) проставляется детерминированно на этом же уровне.
+
+### Модуль `statement_xlsx.py` (4535 байт)
+
+XLSX-парсер, **только ВТБ:**
+```python
+"""ВТБ XLSX-адаптер: каждый лист = счёт. Тот же выходной формат и classify(),
+   что у statement_parser, для единообразия в /parse-statement."""
+...
+"bank_name": "ВТБ (ПАО)",
+```
+
+Каждый лист книги = отдельный счёт (`account_number`).
+
+### Open: Альфа-xlsx не реализован
+
+Альфа-Банк выгружает выписки в xlsx-формате с другим layout. В `statement_xlsx.py` ветка Альфы **отсутствует** (только `bank_name="ВТБ (ПАО)"`). Это **DEC-0027 Open Issue #2** — ждёт первой реальной xlsx-выписки от Альфы для калибровки.
+
+Workaround: если приходит xlsx от Альфы, parser-service вернёт 400 / неизвестный формат → orchestrator skip + log. Не блокирует пайплайн.
+
+### Open: `/parse-document` для DEC-0028
+
+Endpoint `/parse-document` (договоры/акты) **не реализован**. Спроектирован в DEC-0028 (Drafted, not implemented).
+
+### Зеркалирование
+
+Прод-копии (`/opt/mail-stack/parser-service/server.py`, `statement_parser.py`, `statement_xlsx.py`) **не закоммичены** в `~/compliance-assistant-repo` (sync с 03.06.2026, эти файлы появились/были обновлены 02.06.2026). Зеркалирование — отдельный шаг санации (см. cleanup_backlog_v2.md п. 1.2).

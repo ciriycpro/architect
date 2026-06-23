@@ -772,3 +772,79 @@ summary_start    + meta.elapsed_ms >= 60000 → "⏳ Почти готово, ф
 - **Параллелизм вложений (v1.3)** — отложен до реальной нагрузки. Архитектурные риски зафиксированы (rate limits OpenRouter, memory parser-service, goroutine leaks, partial failures). Решение по факту первого реального 25 МБ PDF.
 - **Event bus (Kafka/NATS)** — НЕ применён для прогресс-событий. Текущий HTTP push достаточен для 1-to-1 общения (orchestrator → Agent Caller). Применение рассматривается на DEC-023 при появлении конкретных pub/sub паттернов (one-to-many, audit replay). См. обновление DEC-022.
 - **Mail-stack контракт** — без изменений в v1.2.x.
+
+## Implementation Notes (23.06.2026, v1.3-prep) — статус, второй cron, форма деплоя
+
+После санации канона зафиксированы три направления, относящиеся к orchestrator-tier.
+
+### Статус деплоя на coo
+
+**В проде (что работает):**
+- orchestrator-bin (Go, statically linked, stripped, ELF), strings → `orchestrator-v1.2`.
+- Один cron `c` запускает workflow `email_digest_v1` по `ORCHESTRATOR_SCHEDULE`.
+- env-файл `/etc/mail-stack/orchestrator.env` содержит все нужные переменные для v1.2.x плюс **заготовку под v1.3**: `STATEMENT_VACUUM_SCHEDULE=0 6,10,14,18 * * *`, `COMPLIANCE_LOGIC_URL=`, `COMPLIANCE_LOGIC_API_KEY=`, `COMPLIANCE_LOGIC_CA_CERT=`.
+- systemd `Restart=always`, рестарт за 1–2 секунды в случае краша.
+
+**В working tree (не задеплоено):**
+- `workflow/statement_vacuum_v1.go` (untracked).
+- `activities/ingest.go` (untracked) — клиент к `compliance-logic /statements/ingest`.
+- `activities/{mail,parser,attachment}.go` (modified) — добавлен `Label` в параметры активити.
+- `cmd/orchestrator/main.go` (modified, +88 строк) — второй cron `c2` для statement_vacuum.
+- `config/config.go` (modified, +8 строк) — `STATEMENT_VACUUM_SCHEDULE` env.
+
+Деплой этой группы планируется отдельным шагом санации (build → cp → systemctl restart).
+
+### Второй cron c2 для statement_vacuum (заготовка)
+
+В `main.go` working tree добавлен второй `cron.Cron` с независимым расписанием:
+
+```go
+if cfg.StatementVacuumSchedule != "" {
+    c2 = cron.New(cron.WithLogger(cronLogger{logger}))
+    _, err := c2.AddFunc(cfg.StatementVacuumSchedule, func() {
+        // запуск workflow.StatementVacuumV1{MailboxLabel: "compliance-5458508", ...}.Run(ctx)
+    })
+    c2.Start()
+}
+```
+
+**MailboxLabel зашит как литерал** в `main.go` строка 119: `MailboxLabel: "compliance-5458508"`. Технический долг (cleanup_backlog_v2 п. 2.4): вынести в env `STATEMENT_VACUUM_MAILBOX_LABEL`. В текущем виде смена адресной метки требует пересборки бинаря.
+
+**Graceful shutdown** в текущей working tree обрабатывает только основной `c.Stop()`. Для `c2` нужен парный `c2.Stop()` в shutdown-блоке — будет добавлен при деплое (cleanup_backlog 2.3).
+
+### Форма деплоя Go-сервисов (стандарт)
+
+Зафиксировано: канон = git репо (`~/compliance-assistant-repo`), деплой = `build → cp → systemctl restart`. Конкретно:
+
+```bash
+# 1. Сборка в working dir (на coo или на macOS с GOOS=linux)
+cd ~/compliance-assistant-repo/orchestrator
+go build -trimpath -ldflags="-s -w" -o orchestrator-bin ./cmd/orchestrator
+# Проверка: статичный, stripped, ~5-6 MB
+file orchestrator-bin   # → statically linked, stripped
+
+# 2. Бэкап текущего бинаря и копия нового
+sudo cp /opt/mail-stack/orchestrator/orchestrator-bin /opt/mail-stack/orchestrator/orchestrator-bin.bak.$(date +%s)
+sudo cp orchestrator-bin /opt/mail-stack/orchestrator/orchestrator-bin
+
+# 3. Рестарт через systemd (НЕ дёргать бинарь напрямую — он подхватывает env через systemd unit)
+sudo systemctl restart orchestrator
+
+# 4. Проверка
+systemctl status orchestrator --no-pager
+sudo journalctl -u orchestrator -n 30 --no-pager
+```
+
+**Правила:**
+- Бэкап старого бинаря **обязательно** перед `cp`. Имя: `.bak.<unix_timestamp>` или `.bak.<semver>`.
+- Бинарь **никогда** не запускается напрямую (`./orchestrator-bin` без env положит сервис — env инжектится systemd unit'ом из `/etc/mail-stack/orchestrator.env`).
+- Откат: `sudo cp <bak> /opt/.../orchestrator-bin && sudo systemctl restart orchestrator`.
+- Сборка через `Makefile` — техдолг (cleanup_backlog 2.5), пока ручные команды.
+
+Эта форма деплоя применяется ко всем Go-сервисам (orchestrator, state-service). Python-сервисы используют свою форму (rsync + `systemctl restart`).
+
+### env-заготовка под mTLS интеграцию с compliance-logic
+
+В `/etc/mail-stack/orchestrator.env` присутствуют переменные `COMPLIANCE_LOGIC_URL`, `COMPLIANCE_LOGIC_API_KEY`, `COMPLIANCE_LOGIC_CA_CERT`. **Соответствующего кода (activities/compliance.go) пока нет.** Заготовка под будущий DEC, в котором orchestrator будет ходить в `compliance-logic /statements/ingest` напрямую (вариант — пока ходит косвенно через `activities/ingest.go` working tree без mTLS).
+
+Решение по этому DEC откладывается: до фактического деплоя statement_vacuum пути и эффекта.

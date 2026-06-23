@@ -274,3 +274,76 @@ v3.0 (KAMF):       Kafka родная — multi-agent industrial, real-time stre
 - Event bus может появиться **внутри** Spring Boot (Spring Cloud Stream) когда станет нужен — это **локальное решение** DEC-023, не сквозное архитектурное
 
 **Финальное решение DEC-023 по конкретному стеку BL** — фиксируется при написании самого DEC-023 после понимания первой реальной compliance-задачи.
+
+## Implementation Notes (23.06.2026) — Полная label/group parity
+
+После санации канона зафиксирована текущая реализация label/group адресации в mail-stack. Принцип DEC-022 о доменно-адресуемых тулах — реализован в обоих ключевых сервисах.
+
+### mail-service: endpoint `GET /mail/since/{since_date}`
+
+Сигнатура (server.py:225-226):
+
+```python
+@app.get("/mail/since/{since_date}")
+def get_mail_since(since_date: str, mailbox: str = DEFAULT_MAILBOX,
+                   label: str = None, group: str = None):
+```
+
+Логика фильтрации (server.py:240-251):
+
+```python
+# DEC-022 адресация: label=точный ящик, group=набор, иначе — только default-ящики.
+# Дайджест-оркестратор зовёт без параметров → default-ящики;
+# compliance-orchestrator зовёт ?label=compliance-5458508 → точечный ящик.
+if label:
+    boxes = [mb for mb in MAILBOXES if mb.get("label") == label]
+elif group:
+    boxes = [mb for mb in MAILBOXES if mb.get("group") == group]
+else:
+    boxes = [mb for mb in MAILBOXES if mb.get("default", True)]
+if not boxes:
+    log.info(f"No mailbox matched (label={label}, group={group}); ...")
+    return []
+```
+
+`MAILBOXES` загружается из env `MAILBOXES_JSON` — массив объектов с полями `label`, `group`, `default`, `user`, `host`, `port`, `pass`.
+
+### attachment-service: симметричная реализация (07.06.2026)
+
+До 07.06.2026 attachment-service грузил attachments из **всех** ящиков циклом (нарушая DEC-022 принцип адресуемости). 07.06.2026 в проде была развёрнута правка, добавившая label/group filtering в `_imap_find_message`:
+
+```python
+# attachment-service/server.py:182
+def _imap_find_message(message_id: str, label: str | None = None, group: str | None = None):
+    ...
+    if MAILBOXES:
+        if label:
+            boxes = [mb for mb in MAILBOXES if mb.get("label") == label]
+        elif group:
+            boxes = [mb for mb in MAILBOXES if mb.get("group") == group]
+        else:
+            boxes = [mb for mb in MAILBOXES if mb.get("default", True)]
+```
+
+Сохранён бэкап `server.py.bak.tairov-fix-20260607-0910` для отката. Прод-копия не зеркалирована в `~/compliance-assistant-repo` (sync с 03.06.2026; правка ждёт коммита).
+
+### Цепочка label-routing в DEC-0027 (statement_vacuum_v1, working tree)
+
+Готовый поток (в коде, не задеплоен):
+
+```
+orchestrator/cmd/orchestrator/main.go (хардкод MailboxLabel="compliance-5458508")
+   ↓
+orchestrator/workflow/statement_vacuum_v1.go
+   ↓ передаёт Label в активити
+orchestrator/activities/mail.go      ─→ GET /mail/since/...?label=compliance-5458508 → mail-service
+orchestrator/activities/attachment.go ─→ POST /attach?label=compliance-5458508       → attachment-service
+   ↓
+IMAP boxes: только тот, у которого label=="compliance-5458508"
+```
+
+Принцип DEC-022 («Каждый дёргает свою адресуемую сущность; не маршрутизируем по типу клиента») реализован полностью.
+
+### Open: вынос label в env
+
+`compliance-5458508` зашит литералом в `main.go` строка 119 (working tree). При смене Таирова на другого клиента или подключении второго клиента — пересборка бинаря. Технический долг (cleanup_backlog_v2 п. 2.4): env-переменная `STATEMENT_VACUUM_MAILBOX_LABEL`.

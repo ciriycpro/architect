@@ -111,3 +111,48 @@ Vacuum пишет `operation_class` + `purpose` — ровно то, чем ко
 - **DEC-022** — Mail-stack as Platform: mail-service как domain-tool (переиспользован как label-адресуемый источник).
 - **DEC-017** — Secure by Design: mTLS, rate-limit (наследуются compliance-logic).
 - **DEC-014** — Orchestrator (Go): источник опроса почты для входящего контура.
+
+## Implementation Notes (23.06.2026, post-deploy status check)
+
+После санации архитектурного канона зафиксирован фактический статус компонентов на coo (read-only скан 23.06.2026 11:53 UTC).
+
+### Что в проде (deployed)
+
+**Java compliance-logic** — jar собран 04.06.2026, активен:
+- `StatementIngestService` (Commit 5, 02-03.06).
+- `GapAlertOrchestrator` с SQL-фильтром по типу флага.
+- `CallerPort` (HttpCallerClient) — gap-alerts в WhatsApp Таирову.
+- БД-факты: `notifications=38`, `statement_gaps=23`, `reconciliation_flags=26` (MISSING_CONTRACT), `money_operations=936`, `clients=2`, `counterparties=34`, `documents=39`, `statements=6`.
+
+**Python mail-stack** — `/opt/mail-stack/` (Jun 2 — Jun 7):
+- `mail-service`: endpoint `GET /mail/since/{since_date}?label=&group=` с реальным фильтром MAILBOXES (DEC-022 parity, см. также DEC-0022 addendum).
+- `parser-service`: endpoint `POST /parse-statement` + модули `statement_parser.py` (ВТБ/Альфа PDF) и `statement_xlsx.py` (ВТБ-only, см. также DEC-0008 addendum).
+- `attachment-service`: label/group filtering в `_imap_find_message` (фикс 07.06.2026, замыкает DEC-022 parity на attachment-service).
+
+### Что НЕ в проде (working tree only)
+
+**orchestrator Go-часть** — лежит в `~/compliance-assistant-repo/`, не собрана, не задеплоена:
+- `workflow/statement_vacuum_v1.go` — workflow (untracked).
+- `activities/ingest.go` — клиент к `/statements/ingest` (untracked).
+- `activities/{mail,parser,attachment}.go` — модифицированы для label-проброса (modified).
+- `cmd/orchestrator/main.go` — добавлен второй cron `c2` для statement-vacuum (+88 строк, modified).
+- `config/config.go` — добавлена `STATEMENT_VACUUM_SCHEDULE` (+8 строк, modified).
+
+env-файл `/etc/mail-stack/orchestrator.env` содержит `STATEMENT_VACUUM_SCHEDULE=0 6,10,14,18 * * *` — заготовлен под будущий деплой.
+
+`MailboxLabel: "compliance-5458508"` зашит как хардкод в `main.go` строка 119 (см. cleanup_backlog_v2.md п. 2.4 — вынести в env). Цепочка label-routing замкнута: orchestrator → mail-service `?label=` → attachment-service `?label=` → IMAP boxes.
+
+**Запущенный orchestrator-bin** — старый, без statement_vacuum workflow. Бинарь strings → `orchestrator-v1.2`.
+
+### Open Issues — обновление статуса
+
+- **Open #1 (оркестратор-опрос почты для входящего контура)** — остаётся открытым: код в working tree, не задеплоен. Входящий контур не замкнут.
+- **Open #2 (Альфа-xlsx парсинг)** — остаётся открытым: `statement_xlsx.py` содержит только `bank_name="ВТБ (ПАО)"`, Альфа-xlsx не реализована (см. также DEC-0008 addendum).
+- **Open #3 (ложный FAILED при медленной Chrome в Caller)** — **RESOLVED 12.06.2026**: `HttpCallerClient.java` timeout на `/send-wa` увеличен с 120с до 300с (правка в working tree, не задеплоена; jar на coo 04.06 имеет старый timeout).
+- **Open #4 (ингест договоров)** — переведён в **DEC-0028** (Drafted, not implemented).
+- **Open #5 (тай-брейк при одинаковых фамилиях)** — остаётся открытым, ждёт коллизии в проде.
+- **Open #6 (расхождение ИНН Таирова 050900147847 vs 050401330914)** — остаётся открытым, ждёт ревизии исходных данных.
+
+### Зеркалирование кода в репо
+
+Все Python-правки (`/opt/mail-stack/mail-service`, `/parser-service`, `/attachment-service`) **не закоммичены** в `~/compliance-assistant-repo` — последний sync с coo 03.06.2026. Java и Go правки **в working tree, не закоммичены**. Зеркалирование выполняется отдельным шагом санации (см. cleanup_backlog_v2.md, раздел 1.2).
