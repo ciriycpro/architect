@@ -11,7 +11,7 @@
 - **kamf/ — МАИФ** (kamf — историческое имя каталога). Открытый индустриальный стандарт
   мультиагентных систем СИРИУС ПРО. C4 на трёх уровнях (System Context, Container, Component).
 - **tairov/ — Compliance Assistant.** Агентная система комплаенс-документооборота,
-  развёрнута в production на GCP. C4 на трёх уровнях + 24 ADR (DEC-001…0026) + Service Blueprint.
+  развёрнута в production на GCP. C4 на трёх уровнях + 23 принятых ADR (DEC-0001…0027 с пропусками 0012, 0015, 0019, 0020) + DEC-0028 Drafted + cleanup_backlog_v2 + Service Blueprint.
 
 ## Методология
 - C4 (Structurizr DSL) — workspace.dsl хранит текущее состояние архитектуры.
