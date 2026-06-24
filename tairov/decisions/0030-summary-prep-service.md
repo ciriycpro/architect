@@ -375,3 +375,80 @@ Structured logs slog/JSON формата (как в orchestrator). Каждый 
 6. Прогон на КЕБ-PDF и декларациях для верификации.
 
 Параллельно с DEC-0030 реализуется bug-fix `_date_key` в mail-service (DEC-0007 Implementation Notes 23.06.2026) — нормализация naive→aware datetime после `parsedate_to_datetime` для писем с `Date: -0000` (Облако Mail).
+
+---
+
+## Implementation Notes — 24.06.2026 (canary run + reframe fast/deep modes)
+
+### Канарейка на реальном КЕБ-PDF
+
+После деплоя summary-prep v1.0 на coo (24.06.2026 15:05 UTC) проведена канарейка на реальном документе `uid=3835: Ответ_банку_КЕБ_Таиров_115-ФЗ полный.pdf` (2.19 МБ, 48 страниц, 102271 chars после PyMuPDF).
+
+**Первая попытка (markdown-fence bug):**
+- Все 9 MAP-calls (3 chunks × 3 retry) упали с `json.JSONDecodeError: Expecting value: line 1 column 1 (char 0)`.
+- Корень: Claude Haiku 4.5 через OpenRouter **игнорирует** `response_format={"type":"json_object"}` и оборачивает ответ в ` ```json ... ``` ` markdown fences. Это известное поведение Anthropic моделей через прокси-провайдеры — strict-JSON через OpenRouter не работает.
+- Fix: функция `_strip_markdown_fences(text)` перед `json.loads` в map/reduce/verify stages.
+
+**Вторая попытка (после markdown-fence fix):**
+- 3/3 MAP-calls succeeded, токены извлечены корректно.
+- REDUCE упал на Pydantic validation: LLM вернула `amounts` и `dates` без обязательного поля `raw_text` для большинства записей (14 validation errors).
+- Корень: схема `Amount.raw_text` и `DateEntry.raw_text` были обязательными в v1.0. LLM не всегда заполняет это поле — может вернуть только `value+role` или `date+role`, считая контекст самоочевидным.
+
+### Reframe: fast vs deep вместо одного режима
+
+Изначальный DEC-0030 предусматривал поле `quality_mode={fast,deep}` в `DistillRequest`, но в MVP v1.0 был реализован **только один промпт** с обязательным `raw_text` — фактически "deep" режим. Это создало два архитектурных перекоса:
+
+1. **Перекос semantic load для дайджеста.** Таиров в дайджесте Mail Reader получает **structured extraction с цитатами** — это `compliance-grade evidence`, не нужно для inbox-обзора. Дайджест должен получать **смысловое резюме**, а не доказательную базу.
+
+2. **Перекос для будущего compliance-loop.** Compliance-logic (DEC-0028 Phase 2) будет получать договоры/акты — там `raw_text` с цитатами **критичен** для аудита (`compliance_events.evidence_excerpt`). MVP-промпт под это годится.
+
+**Reframe:** одна архитектура, два промпта, выбор через `quality_mode`:
+
+#### `quality_mode="fast"` (для Mail Reader дайджеста)
+
+- **Промпт MAP_FAST**: "выдели тип документа, 3-5 ключевых фактов, требования к получателю, основные стороны (без обязательного ИНН), общая суть. Цитаты опциональны."
+- **Schema strictness**: soft. `raw_text` в `Amount/DateEntry` — `Optional[str] = None`. ИНН в `Party.inn` — `Optional[str] = None` (как было).
+- **Output footprint**: ~500-1000 tokens output на chunk vs 2000+ в deep.
+- **Cost prediction**: КЕБ-PDF ~$0.005 vs ~$0.018 в deep. На месяц Таирова (~30 больших док) — ~50₽ vs ~240₽.
+- **Время**: ~10-15 сек на документ (1-3 chunks, REDUCE короче).
+- **Использование**: orchestrator workflow `email_digest_v1` для дайджеста.
+
+#### `quality_mode="deep"` (для compliance-logic в будущем)
+
+- **Промпт MAP_DEEP**: текущий "извлеки факты с дословными цитатами raw_text". Жёсткие требования по полям.
+- **Schema strictness**: strict. `raw_text` обязательный для каждого факта.
+- **Output footprint**: 2000+ tokens output на chunk.
+- **Cost prediction**: КЕБ-PDF ~$0.018. Применяется только для compliance-документов (контракты, акты).
+- **Использование**: compliance-logic POST `/contracts/ingest` → внутренний вызов summary-prep с `quality_mode=deep` (DEC-0028 Phase 2).
+
+#### Schema изменения
+
+```python
+class Amount(BaseModel):
+    value: Decimal
+    currency: str = "RUB"
+    role: str
+    raw_text: str | None = None   # <-- было обязательным, теперь Optional
+
+class DateEntry(BaseModel):
+    date: date
+    role: str
+    raw_text: str | None = None   # <-- было обязательным, теперь Optional
+```
+
+Soft contract разрешает `None` в `raw_text`; hard contract (для DEC-0028 Phase 2) валидирует наличие `raw_text` через **внешний** check (по `contract_strictness="hard"`), не через Pydantic strict-mode. Это даёт **гибкость для дайджеста** без потери **строгости для compliance**.
+
+### Cost-сравнение по модели
+
+DeepSeek-chat V3 рассмотрен как альтернатива Haiku 4.5 (в 4 раза дешевле — $0.27/$1.10 на 1M tokens vs $1.00/$5.00 у Haiku). Решение **остаётся за Haiku**:
+- На дайджест Таирова (`fast` mode, ~50₽/мес) экономия от DeepSeek = ~35₽/мес. Не критично.
+- Haiku даёт лучшее качество русского и лучше держит структурированный output (после markdown-fence fix).
+- DeepSeek помечен как fallback в схеме (`DISTILL_FALLBACK_MODEL`), будет использован при недоступности Haiku — но не как primary.
+
+### Open Issue #8 (новый)
+
+**Fast/Deep промпт-инжиниринг и сравнение.** Текущая канарейка показала что MAP_FAST даёт человеческое резюме, MAP_DEEP даёт structured evidence. Нужно **измерить** на полном дайджесте Таирова за месяц:
+- Удовлетворённость Таирова дайджестом (`fast`)
+- Покрытие фактов compliance-уровня (`deep`) — после деплоя DEC-0028
+
+Триггер revisit: после первого месяца работы fast-режима + после первого ingest контракта через deep-режим.
