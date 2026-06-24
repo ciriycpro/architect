@@ -108,3 +108,41 @@ StandardError=journal
 [Install]
 WantedBy=multi-user.target
 ```
+
+---
+
+## Implementation Notes — 23.06.2026 (bug-fix mail-service `_date_key`)
+
+### Контекст инцидента
+
+С 19.06.2026 по 23.06.2026 mail-service отвечал HTTP 500 на `GET /mail/since/{date}` для окна с 16.06. Workflow `email_digest_v1` падал на `step.fetch_mail` каждое утро в 07:00 UTC. `last_at` chat_id Таирова (1257818936) замёрз на `2026-06-16T07:00:00Z`.
+
+### Корневая причина
+
+В `_date_key` функции (`server.py` строка ~258) сравнение `datetime.fromisoformat(m['date'])` для сортировки. Большинство писем пришли от Mail.ru/Gmail с таймзоной (+0300, -0700) → aware datetime. Письмо `uid=3842` от `important@cloud.mail.ru` (Облако Mail, 18.06 10:59 UTC) пришло с `Date: Thu, 18 Jun 2026 10:59:11 -0000`. По RFC 2822 `-0000` означает "таймзона не сообщается специально"; `parsedate_to_datetime()` для `-0000` возвращает **naive datetime**. После `.isoformat()` строка без зоны → `fromisoformat` возвращает naive.
+
+`all_messages.sort(key=_date_key, reverse=True)` пытается сравнить naive vs aware → `TypeError: can't compare offset-naive and offset-aware datetimes` → 500.
+
+Long-tail bug — до 18.06 в окне Таирова не было писем с `-0000`.
+
+### Решение
+
+Однострочная нормализация после `datetime.fromisoformat`:
+
+```python
+def _date_key(m):
+    try:
+        dt = datetime.fromisoformat(m['date'].replace('Z', '+00:00'))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except Exception:
+        return datetime.min.replace(tzinfo=timezone.utc)
+```
+
+Не меняет поведение для aware (большинство писем). Защищает от `-0000` и любых других naive в будущем (потенциально могут быть от самописных SMTP-клиентов, ботов).
+
+### Связанные техдолги (не покрыты этим bug-fix)
+
+- **Dedlock `SetLastAt(now)` под `if deliveredOK`** в orchestrator workflow `email_digest_v1`. После падения summary-service на 17-18.06 `last_at` не обновился, окно росло до конца недели, наслаивая ошибку naive→aware (B) на context overflow (A). Решение по dedlock — отдельной задачей в cleanup_backlog_v2.md (раздел 6.1).
+- **Context overflow в summary-service** на длинных text-based PDF — решается через **DEC-0030** (summary-prep service).
